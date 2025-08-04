@@ -41,3 +41,6 @@ vignettes/*.pdf
 .Renviron
 
 # Other files
+/*.png
+/data/GBD/*.csv
+/data/GBD/maternal_disorders/*.csv

@@ -1,0 +1,152 @@
+---
+title: "Interactive Country Profiles"
+author: "Anshu Uppal"
+format: 
+        dashboard:
+                orientation: columns
+                nav-buttons: [github]
+                github: https://github.com/anshu-uppal/Dashboard_WHO
+server: shiny
+---
+
+```{r}
+#| context: setup
+#| message: false
+
+# install.packages("pacman")
+pacman::p_load(
+  here,
+  tidyverse,
+  # plotly,
+  janitor,
+  DT,
+  sf,
+  necountries,
+  patchwork,
+  Hmisc,
+  ggmapinset,
+  cowplot,
+  magick,
+  scatterpie,
+  ggnewscale
+)
+
+# Load or install packages from GitHub:
+pacman::p_load_gh(
+  "DrMattG/SDGsR", # Uses API to get SDGs data
+  "aphp/rgho" # Uses API to get data from Global Health Observatory
+  # "PPgp/wpp2024" # United Nations World Population Prospects 2024
+  # "m-muecke/isocountry" # Get ISO codes for countries
+)
+
+# Load in custom functions
+source("utils.R")
+# # Load external data
+# source(here("code", "external_data.R"))
+
+# Read in pre-processed datasets
+sdg_data <- readRDS(here("data", "SDG_data_enhanced.rds")) |> 
+  filter(cycle != "Cycle 4") |> droplevels()
+state_geo <- readRDS(here("data", "state_geo_enhanced.rds"))
+country_list <- tibble(
+  country = state_geo$country,
+  english_formal = state_geo$english_formal
+)
+```
+
+#  {.sidebar width="400px"}
+```{r}
+# Create the dropdown selection objects
+
+# Select the Region
+selectInput("selected_region", "Select Region:", 
+            choices = c("All", unique(state_geo$wbregion)), 
+            selected = "All")
+
+# Select the Setting
+selectInput("selected_SUR", "Select State under Review:",
+            choices = unique(state_geo$country),
+            multiple = FALSE
+            # , options = pickerOptions(
+            #         actionsBox = TRUE,
+            #         selectOnTab = TRUE
+            # )
+)
+```
+
+```{r}
+#| context: server
+# Reactive expression to filter data to chosen Region
+filtered_upr <- reactive({
+  sdg_data |> 
+    filter(state_under_review == input$selected_SUR)
+})
+
+# Reactive expression to filter data to chosen Region
+region_selection <- reactive({
+  if(input$selected_region == "All") {
+    state_geo
+  } else{
+    state_geo |> 
+      filter(wbregion == input$selected_region)
+  }
+})
+
+# Observe changes in the 'selected_region' input, and update setting choices
+observeEvent(input$selected_region, {
+  # Update the choices in the 'selected_indicateur' input
+  updateSelectInput(
+    session, "selected_SUR",
+    choices = sort(unique(region_selection()$country))
+    , selected = sort(unique(region_selection()$country))[1]
+  )
+})
+```
+
+# Plots
+```{r}
+#| context: server
+output$plot <- renderPlot({
+  filtered_upr() |> 
+    group_by(state_under_review) |>  
+    count(health_related) |> 
+    ggplot(aes(x = health_related, y = n))+
+    geom_col()+
+    facet_wrap(.~state_under_review)
+})
+
+# Creat boundary box around chosen state
+bbox_selected_SUR <- reactive({
+  state_geo |> 
+    filter(country %in% c(input$selected_SUR)) |>
+    # filter(region %in% c(chosen_region)) |> 
+    # st_boundary() # Add a 2,000 km buffer around chosen country
+    st_bbox()
+})
+
+output$map_plot <- renderPlot({
+  state_geo |> 
+    mutate(selected_sur = factor(case_when(country == input$selected_SUR ~ input$selected_SUR, 
+                                           .default = "Other"), 
+                                 levels = c(input$selected_SUR, "Other"))) |> 
+    ggplot()+
+    geom_sf(aes(geometry = polygon, color = selected_sur, lwd = selected_sur))+
+    scale_color_manual(values = c("black","grey80"))+
+    scale_linewidth_manual(values = c(1,0.5))+
+    guides(color = "none", lwd = "none")+
+    theme_bw()+
+    theme(
+      panel.grid = element_blank(),
+      axis.text = element_blank(), axis.ticks = element_blank()
+    )+
+    coord_sf(
+      xlim = c(max(-180, bbox_selected_SUR()[[1]]-15), min(180,bbox_selected_SUR()[[3]]+15)), 
+      ylim = c(max(-55.67295, bbox_selected_SUR()[[2]]-15), min(83.6341,bbox_selected_SUR()[[4]]+15)))
+})
+```
+
+```{r}
+plotOutput("plot")
+
+plotOutput("map_plot")
+```
