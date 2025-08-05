@@ -1,11 +1,12 @@
 ---
-title: "Interactive Country Profiles"
+title: "Country Profiles and the UPR"
 author: "Anshu Uppal"
 format: 
         dashboard:
-                orientation: rows
+                # orientation: columns
                 nav-buttons: [github]
-                github: https://github.com/anshu-uppal/Dashboard_WHO
+                github: https://github.com/CeHDI-Foundation/country_profiles
+logo: https://quarto.org/quarto.png
 server: shiny
 ---
 
@@ -109,7 +110,7 @@ SUR_region <- reactive({
 # Get the area of the SuR
 sur_area <- reactive({
   state_geo |> 
-  filter(country %in% c(input$selected_SUR)) |> 
+    filter(country %in% c(input$selected_SUR)) |> 
     st_area() |> as.numeric()})
 
 # Creat boundary box around chosen state and region
@@ -130,6 +131,52 @@ bbox_SUR_region <- reactive({
 })
 ```
 
+```{r}
+#| context: server
+
+output$global_map <- renderPlot({
+  p1 <- state_geo |> 
+    mutate(selected_sur = factor(case_when(country == input$selected_SUR ~ input$selected_SUR, 
+                                           .default = "Other"), 
+                                 levels = c(input$selected_SUR, "Other"))) |> 
+    ggplot(aes(geometry = polygon, color = selected_sur, fill = selected_sur, lwd = selected_sur))+
+    geom_sf()+
+    scale_color_manual(values = c("green4", "grey80"))+
+    scale_linewidth_manual(values=c(0.8, 0.3))+
+    scale_fill_manual(values = c("green4", "grey90"))+
+    theme_bw()+
+    theme(
+      panel.grid = element_blank(),
+      axis.text = element_blank(), axis.ticks = element_blank()
+    )+
+    labs(title = NULL,
+         fill = NULL,
+         color = NULL, lwd = NULL)+
+    guides(fill = "none", lwd = "none", color = "none"
+           # , fill = guide_legend(nrow = 1)
+    )
+  
+  if(sur_area() > 10^11){p2<-p1} else{p2<-p1+geom_rect(
+    aes(
+      xmin = bbox_selected_SUR()["xmin"]-1,
+      xmax = bbox_selected_SUR()["xmax"]+1,
+      ymin = bbox_selected_SUR()["ymin"]-1,
+      ymax = bbox_selected_SUR()["ymax"]+1
+    ),
+    fill = "transparent",      # Make the rectangle hollow
+    color = "green4",             # Set the border color
+    linewidth = 0.5            # Set the border thickness
+  )}
+  
+  p2
+})
+```
+
+```{r}
+plotOutput("global_map")
+```
+
+
 # UPR
 ```{r}
 #| context: server
@@ -143,126 +190,124 @@ output$plot <- renderPlot({
 })
 ```
 
-
-```{r}
-plotOutput("plot", width = "60%")
-```
-
-## Theme list
 ```{r}
 #| context: server
 output$upr_themes_cycle <- renderPlot({
-  a_1<-filtered_upr() |> 
-  select(cycle, state_under_review, health_related:maternal_health, response_upr) |> 
-  # mutate(across(c(health_related:maternal_health), ~ .x != "Other")) |> 
-  group_by(cycle, response_upr) |> 
-  summarise(across(c(health_related:maternal_health), ~ sum(.x !="Other"))) |> 
-  ungroup() |> 
-  filter(response_upr %in% c("Supported", "Noted/Other")) |>
-  pivot_longer(cols = health_related:maternal_health, 
-               names_to = "theme", 
-               values_to = "n"
-  )
-
-a_2<-sdg_data |> 
-  filter(state_under_review == "Kenya") |>
-  filter(cycle != "Cycle 4") |> 
-  select(cycle, state_under_review, health_related:maternal_health, response_upr) |> 
-  # mutate(across(c(health_related:maternal_health), ~ .x != "Other")) |> 
-  group_by(cycle, response_upr) |> 
-  summarise(across(c(health_related:maternal_health), ~ sum(.x =="Other"))) |> 
-  ungroup() |> 
-  filter(response_upr %in% c("Supported", "Noted/Other")) |>
-  pivot_longer(cols = health_related:maternal_health, 
-               names_to = "theme", 
-               values_to = "n_other"
-  )
-
-a_3<-sdg_data |> 
-  filter(state_under_review == "Kenya") |>
-  filter(cycle != "Cycle 4") |> 
-  group_by(cycle) |> 
-  summarise(health_n = sum(health_related !="Other")) |> 
-  ungroup()
-
-a <- left_join(a_1,a_2) |> 
-  left_join(a_3) |> 
-  mutate(cycle = fct_recode(cycle, "1"="Cycle 1", "2"="Cycle 2", "3"="Cycle 3", "4"="Cycle 4")) |> 
-  group_by(cycle, theme) |> 
-  mutate(n_tot = sum(n)+sum(n_other)) |> 
-  mutate(n_tot_theme = sum(n)) |> 
-  mutate(perc = n/n_tot*100,
-         perc_theme = n_tot_theme/n_tot*100,
-         theme_perc_health = n_tot_theme/health_n*100) |> 
-  group_by(cycle, theme) |> 
-  mutate(n_sup = paste0("(", sprintf("%1.0f", n/sum(n)*100), "%)"),
-         n_sup = case_when(n_tot_theme == 0 ~ "(NA)", .default = n_sup)) |> 
-  # mutate(n_sup = case_when(
-  #   response_upr == "Noted/Other" ~ "",
-  #   response_upr == "Supported" ~ paste0("(", sprintf("%1.0f", n/sum(n)*100), "%)"),
-  #   .default = NA
-  # )) |> 
-  ungroup() |> 
-  filter(!theme %in% c(
-    "health_related"
-    # , "abortion"
-    , "TB_malaria", "NTD"
-    # , "TB_malaria_NTD"
-  )) |> 
-  left_join(theme_labels, join_by(theme == variable)) |> 
-  arrange(cycle, -n_tot_theme) |> 
-  mutate(theme_label = case_when(is.na(theme_label) ~ theme, .default = theme_label),
-         theme_label = fct_inorder(theme_label))
-
-max_a <- max(a$perc_theme)
-theme_plot <- a |> 
-  # mutate(n_tot_theme = case_when(response_upr!="Supported" ~ "", 
-  #                                .default = as.character(n_tot_theme))) |> 
-  ggplot(aes(x = perc, y = fct_rev(cycle)))+
-  geom_col(aes(fill = response_upr))+
-  facet_grid(
-    rows = vars(theme_label), switch = "y",
-    labeller = labeller(theme_label = label_wrap_gen(50))
-  )+
-  labs(x = "Proportion of all recommendations per UPR cycle (%)", y = NULL,
-       fill = "State's response",
-       title = "Health-related recommendations in the first three cycles of the UPR: Kenya",
-       caption = "*Numbers after the bars indicate N (% supported)")+
-  # theme_bw()+
-  theme_classic()+
-  # scale_y_discrete(expand = c(0.1, 0))+
-  scale_x_continuous(labels = function(x) paste0(x, "%"), 
-                     limits = c(0,max_a+2), 
-                     # sec.axis = dup_axis(name = NULL),
-                     expand = expansion(mult = c(0, 0.05)) # 0 exactly on axis
-  )+
-  theme(
-    legend.position = "inside",
-    legend.position.inside = c(0.75,0.5),
-    legend.justification = c("right", "center"),
-    legend.frame = element_rect(color = "black"),
-    legend.text = element_text(size = 12),
-    legend.title = element_text(size = 15),
-    axis.text.y = element_text(size = 8, face = "bold"), 
-    axis.text.x = element_text(size = 8),
-    plot.title = element_text(hjust = 0.5),
-    plot.title.position = "plot",
-    strip.placement = "outside",
-    strip.text.y.left = element_text(angle = 0, vjust = 1, size = 11),
-    strip.background = element_rect(fill = NA, linewidth = 1, color = "black", linetype = 1),
-    panel.grid = element_blank()
-  )+
-  geom_text(
-    data = a |> filter(response_upr == "Supported"),
-    aes(label = paste0(n_tot_theme, " ", n_sup), x = perc_theme),
-    hjust = -0.15, size = 3 , vjust=0.25
-  ); theme_plot
+  a_1 <- filtered_upr() |> 
+    select(cycle, state_under_review, health_related:maternal_health, response_upr) |> 
+    group_by(cycle, response_upr) |> 
+    summarise(across(c(health_related:maternal_health), ~ sum(.x !="Other"))) |> 
+    ungroup() |> 
+    filter(response_upr %in% c("Supported", "Noted/Other")) |>
+    pivot_longer(cols = health_related:maternal_health, 
+                 names_to = "theme", 
+                 values_to = "n"
+    )
+  
+  a_2 <- filtered_upr() |> 
+    select(cycle, state_under_review, health_related:maternal_health, response_upr) |> 
+    # mutate(across(c(health_related:maternal_health), ~ .x != "Other")) |> 
+    group_by(cycle, response_upr) |> 
+    summarise(across(c(health_related:maternal_health), ~ sum(.x =="Other"))) |> 
+    ungroup() |> 
+    filter(response_upr %in% c("Supported", "Noted/Other")) |>
+    pivot_longer(cols = health_related:maternal_health, 
+                 names_to = "theme", 
+                 values_to = "n_other"
+    )
+  
+  a_3 <- filtered_upr() |> 
+    group_by(cycle) |> 
+    summarise(health_n = sum(health_related !="Other")) |> 
+    ungroup()
+  
+  a <- left_join(a_1,a_2) |> 
+    left_join(a_3) |> 
+    mutate(cycle = fct_recode(cycle, "1"="Cycle 1", "2"="Cycle 2", "3"="Cycle 3", "4"="Cycle 4")) |> 
+    group_by(cycle, theme) |> 
+    mutate(n_tot = sum(n)+sum(n_other)) |> 
+    mutate(n_tot_theme = sum(n)) |> 
+    mutate(perc = n/n_tot*100,
+           perc_theme = n_tot_theme/n_tot*100,
+           theme_perc_health = n_tot_theme/health_n*100) |> 
+    group_by(cycle, theme) |> 
+    mutate(n_sup = paste0("(", sprintf("%1.0f", n/sum(n)*100), "%)"),
+           n_sup = case_when(n_tot_theme == 0 ~ "(NA)", .default = n_sup)) |> 
+    # mutate(n_sup = case_when(
+    #   response_upr == "Noted/Other" ~ "",
+    #   response_upr == "Supported" ~ paste0("(", sprintf("%1.0f", n/sum(n)*100), "%)"),
+    #   .default = NA
+    # )) |> 
+    ungroup() |> 
+    filter(!theme %in% c(
+      "health_related"
+      # , "abortion"
+      , "TB_malaria", "NTD"
+      # , "TB_malaria_NTD"
+    )) |> 
+    left_join(theme_labels, join_by(theme == variable)) |> 
+    arrange(cycle, -n_tot_theme) |> 
+    mutate(theme_label = case_when(is.na(theme_label) ~ theme, .default = theme_label),
+           theme_label = fct_inorder(theme_label))
+  
+  max_a <- max(a$perc_theme)
+  theme_plot <- a |> 
+    # mutate(n_tot_theme = case_when(response_upr!="Supported" ~ "", 
+    #                                .default = as.character(n_tot_theme))) |> 
+    ggplot(aes(x = perc, y = fct_rev(cycle)))+
+    geom_col(aes(fill = response_upr))+
+    facet_grid(
+      rows = vars(theme_label), switch = "y",
+      labeller = labeller(theme_label = label_wrap_gen(50))
+    )+
+    labs(x = "Proportion of all recommendations per UPR cycle (%)", y = NULL,
+         fill = "State's response",
+         title = paste("Health-related recommendations in each cycle of the UPR:", input$selected_SUR),
+         caption = "*Numbers after the bars indicate N (% supported)")+
+    # theme_bw()+
+    theme_classic()+
+    # scale_y_discrete(expand = c(0.1, 0))+
+    scale_x_continuous(labels = function(x) paste0(x, "%"), 
+                       limits = c(0,max_a+2), 
+                       # sec.axis = dup_axis(name = NULL),
+                       expand = expansion(mult = c(0, 0.05)) # 0 exactly on axis
+    )+
+    theme(
+      legend.position = "inside",
+      legend.position.inside = c(1,0.5),
+      legend.justification = c("right", "center"),
+      legend.frame = element_rect(color = "black"),
+      legend.text = element_text(size = 12),
+      legend.title = element_text(size = 15),
+      axis.text.y = element_text(size = 8, face = "bold"), 
+      axis.text.x = element_text(size = 12),
+      plot.title = element_text(hjust = 0.5, size = 16, face = "bold"),
+      plot.title.position = "plot",
+      strip.placement = "outside",
+      strip.text.y.left = element_text(angle = 0, vjust = 1, size = 11),
+      strip.background = element_rect(fill = NA, linewidth = 1, color = "black", linetype = 1),
+      panel.grid = element_blank()
+    )+
+    geom_text(
+      data = a |> filter(response_upr == "Supported"),
+      aes(label = paste0(n_tot_theme, " ", n_sup), x = perc_theme),
+      hjust = -0.15, size = 3 , vjust=0.25
+    ); theme_plot
 })
+```
+
+## Row
+```{r}
+plotOutput("upr_themes_cycle")
+```
+
+```{r}
+plotOutput("plot")
 ```
 
 # Indicators
 
-## MMR
+## Column
 ```{r}
 #| context: server
 
@@ -291,73 +336,82 @@ output$mmr_map <- renderPlot({
       legend.position = "bottom",
       legend.background = element_blank()
     )+
-    labs(title = paste0("Maternal mortality ratio (MMR) estimate in 2023: ",mmr_estimate_2023, " per 100,000 live births"),
+    labs(title = paste0("Maternal mortality ratio (MMR) estimate in 2023, ", input$selected_SUR, ": ", mmr_estimate_2023, " per 100,000 live births"),
          fill = NULL,
          color = NULL, lwd = NULL)+
-    guides(color = "none", lwd = "none", fill = guide_legend(nrow = 1))+
+    guides(color = "none", lwd = "none"
+           # , fill = guide_legend(nrow = 1)
+    )+
     coord_sf(
       xlim = c(max(-180, bbox_selected_SUR()[[1]]-20), min(180,bbox_selected_SUR()[[3]]+20)), 
       ylim = c(max(-55.67295, bbox_selected_SUR()[[2]]-20), min(83.6341,bbox_selected_SUR()[[4]]+20)))
   
   if(sur_area() > 10^11){p2<-p1} else{p2<-p1+geom_rect(
-  aes(
-    xmin = bbox_selected_SUR()["xmin"]-1,
-    xmax = bbox_selected_SUR()["xmax"]+1,
-    ymin = bbox_selected_SUR()["ymin"]-1,
-    ymax = bbox_selected_SUR()["ymax"]+1
-  ),
-  fill = "transparent",      # Make the rectangle hollow
-  color = "red",             # Set the border color
-  linewidth = 0.5            # Set the border thickness
-)}
-
-p3<-p1+coord_sf(
-  xlim = c(bbox_selected_SUR()[[1]], bbox_selected_SUR()[[3]]), 
-  ylim = c(bbox_selected_SUR()[[2]], bbox_selected_SUR()[[4]]))+guides(fill = "none")+labs(title = NULL)
-
-if(sur_area() > 10^11){p2} else{p2+p3}
+    aes(
+      xmin = bbox_selected_SUR()["xmin"]-1,
+      xmax = bbox_selected_SUR()["xmax"]+1,
+      ymin = bbox_selected_SUR()["ymin"]-1,
+      ymax = bbox_selected_SUR()["ymax"]+1
+    ),
+    fill = "transparent",      # Make the rectangle hollow
+    color = "red",             # Set the border color
+    linewidth = 0.5            # Set the border thickness
+  )}
+  
+  p3<-p1+
+    scale_linewidth_manual(values = c(0.2, 0.1))+
+    coord_sf(
+    xlim = c(bbox_selected_SUR()[[1]], bbox_selected_SUR()[[3]]), 
+    ylim = c(bbox_selected_SUR()[[2]], bbox_selected_SUR()[[4]]))+guides(fill = "none")+labs(title = NULL)
+  
+  if(sur_area() > 10^11){p2} else{p2+p3}
 })
 
 
 ### Plot over time ------------------------------------------
 output$mmr_time_plot <- renderPlot({
-start_year <- "2005" # set the start year
-dat_plot <- MMR |> 
-  filter(country_name %in% c(input$selected_SUR)) |> 
-  filter(year >= ymd(paste0(start_year, "-01-01"))) |> 
-  # group_by(country_name) |> filter(NumericValue[YEAR == start_year]>50) |>
-  group_by(country_name) |> 
-  mutate(
-    num_stand = NumericValue - NumericValue[YEAR == start_year],
-    num_low = Low - NumericValue[YEAR == start_year],
-    num_high = High - NumericValue[YEAR == start_year]
-  ) |>  
-  ungroup()
-
-hline_data <- dat_plot |>
-  filter(YEAR == as.numeric(start_year))
-
-dat_plot |> 
-  ggplot(aes(x=year, y = NumericValue))+
-  labs(
-    title = paste0("Trends in Maternal Mortality Ratio (MMR), since ", start_year),
-    x = NULL, y = "MMR estimate (per 100,000 live births)"
-    # , color = NULL
-    , fill = NULL
-  )+
-  geom_line(lwd=1, color = "tomato3")+
-  geom_ribbon(aes(ymin = Low, ymax = High), fill = "tomato3", color = NA, alpha = 0.4)+
-  # scale_color_fermenter(n.breaks = 5, palette = "RdYlBu", )+
-  scale_fill_fermenter(n.breaks = 5, palette = "RdYlBu", direction = 1)+
-  facet_wrap(.~ country_name
-             # , scales = "free"
-  )+
-  geom_hline(data = hline_data, aes(yintercept = NumericValue), lty=2)+
-  theme_bw()
+  start_year <- "2005" # set the start year
+  dat_plot <- MMR |> 
+    filter(country_name %in% c(input$selected_SUR)) |> 
+    filter(year >= ymd(paste0(start_year, "-01-01"))) |> 
+    # group_by(country_name) |> filter(NumericValue[YEAR == start_year]>50) |>
+    group_by(country_name) |> 
+    mutate(
+      num_stand = NumericValue - NumericValue[YEAR == start_year],
+      num_low = Low - NumericValue[YEAR == start_year],
+      num_high = High - NumericValue[YEAR == start_year]
+    ) |>  
+    ungroup()
+  
+  hline_data <- dat_plot |>
+    filter(YEAR == as.numeric(start_year))
+  
+  dat_plot |> 
+    ggplot(aes(x=year, y = NumericValue))+
+    labs(
+      title = paste0("Trends in Maternal Mortality Ratio (MMR), since ", start_year),
+      x = NULL, y = "MMR estimate (per 100,000 live births)"
+      # , color = NULL
+      , fill = NULL
+    )+
+    geom_line(lwd=1, color = "tomato3")+
+    geom_ribbon(aes(ymin = Low, ymax = High), fill = "tomato3", color = NA, alpha = 0.4)+
+    # scale_color_fermenter(n.breaks = 5, palette = "RdYlBu", )+
+    scale_fill_fermenter(n.breaks = 5, palette = "RdYlBu", direction = 1)+
+    facet_wrap(.~ country_name
+               # , scales = "free"
+    )+
+    geom_hline(data = hline_data, aes(yintercept = NumericValue), lty=2)+
+    theme_bw()
 })
 ```
 
+### Row
 ```{r}
 plotOutput("mmr_map")
-plotOutput("mmr_time_plot", width = "60%")
+```
+
+### Row {width=50%}
+```{r}
+plotOutput("mmr_time_plot")
 ```
