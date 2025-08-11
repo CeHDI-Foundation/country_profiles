@@ -4,7 +4,7 @@ author: "Anshu Uppal"
 date-modified: last-modified # Dynamic modified date
 format: 
         dashboard:
-                # orientation: columns
+                orientation: columns
                 nav-buttons: [github]
                 github: https://github.com/CeHDI-Foundation/country_profiles
 logo: images/logo_5.png
@@ -48,7 +48,8 @@ source(here("code", "external_data.R"))
 
 # Read in pre-processed datasets
 sdg_data <- readRDS(here("data", "SDG_data_enhanced.rds")) |> droplevels()
-state_geo <- readRDS(here("data", "state_geo_enhanced.rds"))
+state_geo <- readRDS(here("output", "state_geo_enhanced.rds"))
+nearest_neighbors_list <- readRDS(here("output", "nearest_neighbors_list.rds"))
 country_list <- tibble(
   country = state_geo$country,
   english_formal = state_geo$english_formal
@@ -64,7 +65,7 @@ selectInput("selected_region", "Select Region:",
             choices = c("All", unique(state_geo$wbregion)), 
             selected = "All")
 
-# Select the Setting
+# Select the State under review
 selectInput("selected_SUR", "Select State under Review:",
             choices = unique(state_geo$country),
             multiple = FALSE
@@ -280,7 +281,7 @@ output$upr_themes_cycle <- renderPlot({
       legend.frame = element_rect(color = "black"),
       legend.text = element_text(size = 12),
       legend.title = element_text(size = 15),
-      axis.text.y = element_text(size = 8, face = "bold"), 
+      axis.text.y = element_text(size = 10, face = "bold"), 
       axis.text.x = element_text(size = 12),
       plot.title = element_text(hjust = 0.5, size = 16, face = "bold"),
       plot.title.position = "plot",
@@ -292,23 +293,126 @@ output$upr_themes_cycle <- renderPlot({
     geom_text(
       data = a |> filter(response_upr == "Supported"),
       aes(label = paste0(n_tot_theme, " ", n_sup), x = perc_theme),
-      hjust = -0.15, size = 3 , vjust=0.25
+      hjust = -0.15, size = 3.5 , vjust=0.25
     ); theme_plot
 })
 ```
 
-## Row
 ```{r}
+#| context: server
+output$upr_themes_all <- renderPlot({
+  a_1 <- filtered_upr() |> 
+    select(cycle, state_under_review, health_related:maternal_health, response_upr) |> 
+    # mutate(across(c(health_related:maternal_health), ~ .x != "Other")) |> 
+    group_by(response_upr) |> 
+    summarise(across(c(health_related:maternal_health), ~ sum(.x !="Other"))) |> 
+    ungroup() |> 
+    filter(response_upr %in% c("Supported", "Noted/Other")) |>
+    pivot_longer(cols = health_related:maternal_health, 
+                 names_to = "theme", 
+                 values_to = "n"
+    )
+  
+  a_2 <- filtered_upr() |> 
+    select(cycle, state_under_review, health_related:maternal_health, response_upr) |> 
+    # mutate(across(c(health_related:maternal_health), ~ .x != "Other")) |> 
+    group_by(response_upr) |> 
+    summarise(across(c(health_related:maternal_health), ~ sum(.x =="Other"))) |> 
+    ungroup() |> 
+    filter(response_upr %in% c("Supported", "Noted/Other")) |>
+    pivot_longer(cols = health_related:maternal_health, 
+                 names_to = "theme", 
+                 values_to = "n_other"
+    )
+  
+  a <- left_join(a_1,a_2) |> 
+    group_by(theme) |> 
+    mutate(n_tot = sum(n)+sum(n_other)) |> 
+    mutate(n_tot_theme = sum(n)) |> 
+    mutate(perc = n/n_tot*100,
+           perc_theme = n_tot_theme/n_tot*100,
+           # theme_perc_health = n_tot_theme/health_n*100
+    ) |> 
+    group_by(theme) |> 
+    mutate(n_sup = paste0("(", sprintf("%1.0f", n/sum(n)*100), "%)"),
+           n_sup = case_when(n_tot_theme == 0 ~ "(NA)", .default = n_sup)) |> 
+    # mutate(n_sup = case_when(
+    #   response_upr == "Noted/Other" ~ "",
+    #   response_upr == "Supported" ~ paste0("(", sprintf("%1.0f", n/sum(n)*100), "%)"),
+    #   .default = NA
+    # )) |> 
+    ungroup() |> 
+    filter(!theme %in% c(
+      "health_related"
+      # , "abortion"
+      , "TB_malaria", "NTD"
+      # , "TB_malaria_NTD"
+    )) |> 
+    left_join(theme_labels, join_by(theme == variable)) |> 
+    arrange(-n_tot_theme) |> 
+    mutate(theme_label = case_when(is.na(theme_label) ~ theme, .default = theme_label),
+           theme_label = fct_inorder(theme_label))
+  
+  
+  max_a <- max(a$perc_theme)
+  a |> 
+    # mutate(n_tot_theme = case_when(response_upr!="Supported" ~ "", 
+    #                                .default = as.character(n_tot_theme))) |> 
+    ggplot(aes(x = perc, y = fct_rev(theme_label)))+
+    geom_col(aes(fill = response_upr))+
+    labs(x = "Proportion of all recommendations per UPR cycle (%)", y = NULL,
+         fill = "State's response",
+         title = paste("Health-related recommendations in each cycle of the UPR:", input$selected_SUR),
+         caption = "*Numbers after the bars indicate N (% supported)")+
+    # theme_bw()+
+    theme_classic()+
+    # scale_y_discrete(expand = c(0.1, 0))+
+    scale_x_continuous(labels = function(x) paste0(x, "%"), 
+                       limits = c(0,max_a+2), 
+                       # sec.axis = dup_axis(name = NULL),
+                       expand = expansion(mult = c(0, 0.05)) # 0 exactly on axis
+    )+
+    theme(
+      legend.position = "inside",
+      legend.position.inside = c(1,0),
+      legend.justification = c("right", "bottom"),
+      legend.frame = element_rect(color = "black"),
+      legend.text = element_text(size = 12),
+      legend.title = element_text(size = 15),
+      axis.text.y = element_text(size = 13),
+      axis.text.x = element_text(size = 8),
+      plot.title = element_text(hjust = 0.5),
+      axis.title.y = element_blank(),
+      plot.title.position = "plot",
+      panel.grid = element_blank()
+    )+
+    geom_text(
+      data = a |> filter(response_upr == "Supported"),
+      aes(label = paste0(n_tot_theme, " ", n_sup), x = perc_theme),
+      hjust = -0.15, size = 4 , vjust=0.25
+    )
+})
+```
+
+## Column {.tabset}
+```{r}
+#| title: All recommendations
+plotOutput("upr_themes_all")
+```
+
+```{r}
+#| title: Per UPR cycle
 plotOutput("upr_themes_cycle")
 ```
 
+## Column 
+### Row {height=50%}
 ```{r}
 plotOutput("plot")
 ```
 
-# Indicators
+# MMR
 
-## Column
 ```{r}
 #| context: server
 
@@ -328,13 +432,13 @@ output$mmr_map <- renderPlot({
     ggplot(aes(geometry = polygon, fill = mmr_cat, color = selected_sur, lwd = selected_sur))+
     geom_sf()+
     scale_linewidth_manual(values=c(0.8, 0.3))+
-    scale_color_manual(values = c("black", "grey90"))+
+    scale_color_manual(values = c("blue3", "grey90"))+
     scale_fill_brewer(palette = "YlOrRd", na.value = "grey80", labels = relabel_na)+
     theme_bw()+
     theme(
       panel.grid = element_blank(),
       axis.text = element_blank(), axis.ticks = element_blank(),
-      legend.position = "bottom",
+      legend.position = "right",
       legend.background = element_blank()
     )+
     labs(title = paste0("Maternal mortality ratio (MMR) estimate in 2023, ", input$selected_SUR, ": ", mmr_estimate_2023, " per 100,000 live births"),
@@ -362,8 +466,8 @@ output$mmr_map <- renderPlot({
   p3<-p1+
     scale_linewidth_manual(values = c(0.2, 0.1))+
     coord_sf(
-    xlim = c(bbox_selected_SUR()[[1]], bbox_selected_SUR()[[3]]), 
-    ylim = c(bbox_selected_SUR()[[2]], bbox_selected_SUR()[[4]]))+guides(fill = "none")+labs(title = NULL)
+      xlim = c(bbox_selected_SUR()[[1]], bbox_selected_SUR()[[3]]), 
+      ylim = c(bbox_selected_SUR()[[2]], bbox_selected_SUR()[[4]]))+guides(fill = "none")+labs(title = NULL)
   
   if(sur_area() > 10^11){p2} else{p2+p3}
 })
@@ -405,14 +509,392 @@ output$mmr_time_plot <- renderPlot({
     geom_hline(data = hline_data, aes(yintercept = NumericValue), lty=2)+
     theme_bw()
 })
+
+### Nearest neigbors plot over time ------------------------------------------
+output$mmr_time_plot_neighbors <- renderPlot({
+  start_year <- "2005" # set the start year
+  dat_plot <- MMR |> 
+    mutate(selected_sur = factor(case_when(country_name == input$selected_SUR ~ input$selected_SUR, 
+                                           .default = "Other"), 
+                                 levels = c(input$selected_SUR, "Other"))) |> 
+    filter(country_name %in% c(input$selected_SUR, 
+                               nearest_neighbors_list[,state_geo |> filter(country == input$selected_SUR) |> pull(rowid)][1:11])) |> 
+    filter(year >= ymd(paste0(start_year, "-01-01"))) |> 
+    # group_by(country_name) |> filter(NumericValue[YEAR == start_year]>50) |>
+    group_by(country_name) |> 
+    mutate(
+      num_stand = NumericValue - NumericValue[YEAR == start_year],
+      num_low = Low - NumericValue[YEAR == start_year],
+      num_high = High - NumericValue[YEAR == start_year]
+    ) |>  
+    ungroup()
+  
+  hline_data <- dat_plot |>
+    filter(YEAR == as.numeric(start_year))
+  
+  dat_plot |> 
+    ggplot(aes(x=year, y = NumericValue))+
+    labs(
+      title = paste0("Trends in Maternal Mortality Ratio (MMR), since ", start_year),
+      x = NULL, y = "MMR estimate (per 100,000 live births)"
+      , color = NULL
+      , fill = NULL
+    )+
+    geom_line(lwd=1, aes(color = selected_sur))+
+    geom_ribbon(aes(ymin = Low, ymax = High, fill = selected_sur), color = NA, alpha = 0.4)+
+    scale_color_manual(values = c("tomato3", "grey30"))+
+    scale_fill_manual(values = c("tomato3", "grey30"))+
+    guides(color = "none", lwd = "none", fill = "none")+
+    facet_wrap(.~ country_name
+               # , scales = "free"
+    )+
+    geom_hline(data = hline_data, aes(yintercept = NumericValue), lty=2)+
+    theme_bw()
+})
+
+### Causes of deaths ---------------------------------
+output$mmr_causes <- renderPlot({
+  maternal_disorders_deaths |> 
+    filter(country %in% c("Global", input$selected_SUR)) |> 
+    filter(!cause_name %in% c("Maternal disorders")) |>
+    filter(age_name %in% c("Age-standardized")) |> 
+    mutate(country = fct_relevel(country, "Global")) |>
+    arrange(country, val) |> 
+    mutate(cause_name = fct_inorder(cause_name)) |> 
+    droplevels() |> 
+    ggplot(aes(y = cause_name, x = val, fill = country))+
+    scale_fill_manual(values = c("grey40", "tomato3"))+
+    geom_col(position = position_dodge())+
+    geom_errorbar(aes(xmin = lower, xmax = upper), width = 0.5, position = position_dodge(width = 0.9))+
+    labs(y = "Maternal cause of death", x = "Age-standardized rate (per 100,000)", fill = NULL,
+         title = "Distribution of causes of maternal deaths (2021)")+
+    # facet_wrap(.~cause_name, ncol=4,
+    #            labeller = labeller(cause_name = label_wrap_gen(28)))+
+    scale_x_continuous(
+      expand = expansion(mult = c(0, 0.05)) # 0 exactly on axis
+    )+
+    theme_classic()+
+    # coord_flip()+
+    theme(panel.grid.major.y = element_line(color = "grey"),
+          axis.text = element_text(size = 14),
+          axis.title = element_text(size = 16),
+          legend.position = "inside",
+          legend.position.inside = c(1,0.01),
+          legend.justification = c("right", "bottom"),
+          legend.key.size = unit(0.6, "cm"),
+          legend.text = element_text(size = 16),
+          legend.background = element_rect(fill = NA)
+    )
+})
 ```
 
-### Row
+## Column {width=50%}
+### Row {height=60%}
 ```{r}
 plotOutput("mmr_map")
 ```
 
-### Row {width=50%}
+### Row {height=40%}
+#### {.tabset}
+```{r}
+plotOutput("mmr_causes")
+```
+
+::: {.callout-note collapse="false" title="MMR cause definitions"}
+**Maternal haemorrhage** includes both postpartum haemorrhage (defined as blood loss ≥500 ml for vaginal delivery and ≥1000 ml for caesarean delivery) and antepartum haemorrhage (defined as vaginal bleeding from any cause at or beyond 20 weeks of gestation).  
+
+**Maternal sepsis** is defined as a temperature <36°C or >38°C and clinical signs of shock (systolic blood pressure <90 mmHg and tachycardia >120 bpm). **Other maternal infections** are defined as any maternal infections excluding HIV, STI, or not related to pregnancy. 
+
+**Maternal hypertensive disorders** include gestational hypertension (onset after 20 weeks gestation), pre-eclampsia, severe preeclampsia, and eclampsia, but exclude chronic hypertension (onset prior to pregnancy or prior to 20 weeks gestation) unless superimposed preeclampsia or eclampsia develop.
+
+**Maternal obstructed labour and uterine rupture** aggregates obstructed labour (arrest in the first or second stage of active labour despite sufficient contractions), uterine rupture (non-surgical breakdown of uterine wall), and fistula (an abnormal opening between the vagina and the bladder or rectum following childbirth). 
+
+**Abortion** is defined as elective or medically indicated termination of pregnancy at any gestational age. **Miscarriage** is defined as spontaneous loss of pregnancy before 24 weeks of gestation with complications requiring medical care.
+
+**Ectopic pregnancy** is defined as pregnancy occurring outside of the uterus.
+
+**Indirect maternal deaths** are due to existing diseases that are exacerbated by pregnancy. Examples include maternal infections and parasitic diseases complicating pregnancy, childbirth, and the puerperium, and diabetes in pregnancy, childbirth, and the puerperium. 
+
+**Late maternal deaths** are deaths that occur six weeks to one year after the end of pregnancy, excluding incidental deaths.
+
+**Maternal deaths aggravated by HIV/AIDS** are deaths occurring in HIV-positive women whose pregnancy has exacerbated their HIV/AIDS, leading to death.
+
+**Other direct maternal disorders** encompasses a wide range of maternal disorders that do not map to other diseases in the GBD cause list, including other fatal or non-fatal complications occurring during pregnancy, childbirth, and the postpartum period. 
+
+See also Cresswell et al. for more background on causes of maternal deaths:  
+Cresswell, Jenny A, Monica Alexander, Michael Y C Chong, Heather M Link, Marija Pejchinovska, Ursula Gazeley, Sahar M A Ahmed, et al. “Global and Regional Causes of Maternal Deaths 2009–20: A WHO Systematic Analysis.” The Lancet Global Health 13, no. 4 (April 2025): e626–34. <https://doi.org/10.1016/S2214-109X(24)00560-6>.
+:::
+
+## Column {width=50%}
+### Row {height=40%}
 ```{r}
 plotOutput("mmr_time_plot")
+```
+### Row {height=60%}
+```{r}
+plotOutput("mmr_time_plot_neighbors")
+```
+
+# Family planning
+```{r}
+#| context: server
+
+### Abortion Laws --------------------
+abortion_map <- reactive({
+  world_abortion_laws |> 
+    right_join(state_geo) |> 
+    mutate(selected_sur = factor(case_when(country == input$selected_SUR ~ input$selected_SUR, 
+                                           .default = "Other"), 
+                                 levels = c(input$selected_SUR, "Other"))) |> 
+    ggplot(aes(geometry = polygon, fill = category, color = selected_sur, lwd = selected_sur))+
+    geom_sf()+
+    scale_linewidth_manual(values=c(0.8, 0.3))+
+    scale_color_manual(values = c("blue3", "grey90"))+
+    scale_fill_manual(values = c("chartreuse4", "cyan3", "gold", "chocolate1", "red3", "purple"), 
+                    na.value = "grey90", labels = relabel_na)+
+    # scale_fill_brewer(palette = "RdYlBu", na.value = "grey90", labels = relabel_na, direction = -1)+
+    theme_bw()+
+    theme(
+      panel.grid = element_blank(),
+      axis.text = element_blank(), axis.ticks = element_blank(),
+      legend.position = "inside",
+      legend.position.inside = c(0,0),
+      legend.justification = c("left", "bottom"),
+      legend.background = element_blank(),
+      legend.key.size = unit(0.3, "cm"),
+      legend.text = element_text(size = 9)
+    )+
+    labs(title = "Abortion laws by State (current as of June 2023)",
+         fill = "Category",
+         color = NULL, lwd = NULL)+
+    guides(color = "none", lwd = "none", label = "none")+
+    theme(axis.title = element_blank())
+})
+
+output$abortion_map <- renderPlot({
+  abortion_map()
+})
+
+output$abortion_map_sur <- renderPlot({
+  p1<-abortion_map()+
+    theme(legend.position = "right",
+          legend.key.size = unit(0.5, "cm"),
+      legend.text = element_text(size = 14))+
+    coord_sf(
+      xlim = c(max(-180, bbox_selected_SUR()[[1]]-20), min(180,bbox_selected_SUR()[[3]]+20)), 
+      ylim = c(max(-55.67295, bbox_selected_SUR()[[2]]-20), min(83.6341,bbox_selected_SUR()[[4]]+20)))
+  
+  if(sur_area() > 10^11){p2<-p1} else{p2<-p1+geom_rect(
+    aes(
+      xmin = bbox_selected_SUR()["xmin"]-1,
+      xmax = bbox_selected_SUR()["xmax"]+1,
+      ymin = bbox_selected_SUR()["ymin"]-1,
+      ymax = bbox_selected_SUR()["ymax"]+1
+    ),
+    fill = "transparent",      # Make the rectangle hollow
+    color = "red",             # Set the border color
+    linewidth = 0.5            # Set the border thickness
+  )}
+  
+  p3<-p1+
+    scale_linewidth_manual(values = c(0.2, 0.1))+
+    coord_sf(
+      xlim = c(bbox_selected_SUR()[[1]], bbox_selected_SUR()[[3]]), 
+      ylim = c(bbox_selected_SUR()[[2]], bbox_selected_SUR()[[4]]))+guides(fill = "none")+labs(title = NULL)
+  
+  if(sur_area() > 10^11){p2} else{p2+p3}
+})
+
+### Abortion rate ---------------------------
+output$abortion_rate <- renderPlot({
+  p1<-abortion_rate |> 
+    filter(!is.na(COUNTRY)) |> 
+    filter(UNCERTAINTY_INTERVAL == "UI95") |> 
+    # filter(country_name %in% c(ecsa_states)) |> 
+    # group_by(COUNTRY) |> 
+    # slice_max(order_by = year, n = 1) |> ungroup() |> 
+    right_join(state_geo, join_by(COUNTRY == iso3)) |> 
+    # filter(region == "Africa") |>
+    mutate(selected_sur = factor(case_when(country == input$selected_SUR ~ input$selected_SUR, 
+                                           .default = "Other"), 
+                                 levels = c(input$selected_SUR, "Other"))) |> 
+    ggplot(aes(geometry = polygon, fill = NumericValue, color = selected_sur, lwd = selected_sur))+
+    geom_sf()+
+    scale_linewidth_manual(values=c(0.8, 0.3))+
+    scale_color_manual(values = c("blue3", "grey90"))+
+    scale_fill_stepsn(n.breaks = 8,  na.value = "grey50",
+                      colors = hcl.colors(n=8, palette = "RdYlBu", rev = TRUE)
+    )+
+    theme_bw()+
+    theme(
+      panel.grid = element_blank(),
+      axis.text = element_blank(), axis.ticks = element_blank(),
+      legend.position = "right",
+      legend.background = element_blank()
+    )+
+    labs(title = "Abortion rate (model-estimated), 2015-2019",
+         fill = "Annual estimate\n(per 1,000)",
+         color = NULL, lwd = NULL)+
+    guides(color = "none", lwd = "none", label = "none")+
+    theme(axis.title = element_blank())+
+    coord_sf(
+      xlim = c(max(-180, bbox_selected_SUR()[[1]]-20), min(180,bbox_selected_SUR()[[3]]+20)), 
+      ylim = c(max(-55.67295, bbox_selected_SUR()[[2]]-20), min(83.6341,bbox_selected_SUR()[[4]]+20)))
+  
+  if(sur_area() > 10^11){p2<-p1} else{p2<-p1+geom_rect(
+    aes(
+      xmin = bbox_selected_SUR()["xmin"]-1,
+      xmax = bbox_selected_SUR()["xmax"]+1,
+      ymin = bbox_selected_SUR()["ymin"]-1,
+      ymax = bbox_selected_SUR()["ymax"]+1
+    ),
+    fill = "transparent",      # Make the rectangle hollow
+    color = "red",             # Set the border color
+    linewidth = 0.5            # Set the border thickness
+  )}
+  
+  p3<-p1+
+    scale_linewidth_manual(values = c(0.2, 0.1))+
+    coord_sf(
+      xlim = c(bbox_selected_SUR()[[1]], bbox_selected_SUR()[[3]]), 
+      ylim = c(bbox_selected_SUR()[[2]], bbox_selected_SUR()[[4]]))+guides(fill = "none")+labs(title = NULL)
+  
+  if(sur_area() > 10^11){p2} else{p2+p3}
+})
+
+###############
+
+### Unintended pregnancy -----------------------------
+output$unintended_pregnancy <- renderPlot({
+  p1<- unintended_pregnancy |> 
+    filter(!is.na(COUNTRY)) |> 
+    filter(UNCERTAINTY_INTERVAL == "UI95") |> 
+    # filter(country_name %in% c(ecsa_states)) |> 
+    # group_by(COUNTRY) |> 
+    # slice_max(order_by = year, n = 1) |> ungroup() |> 
+    right_join(state_geo, join_by(COUNTRY == iso3)) |> 
+    # filter(region == "Africa") |>
+    mutate(selected_sur = factor(case_when(country == input$selected_SUR ~ input$selected_SUR, 
+                                           .default = "Other"), 
+                                 levels = c(input$selected_SUR, "Other"))) |> 
+    ggplot(aes(geometry = polygon, fill = NumericValue, color = selected_sur, lwd = selected_sur))+
+    geom_sf()+
+    scale_linewidth_manual(values=c(0.8, 0.3))+
+    scale_color_manual(values = c("blue3", "grey90"))+
+    scale_fill_fermenter(n.breaks = 10, 
+                         palette = "RdYlBu", direction = -1,
+                         na.value = "grey80", 
+                         labels = relabel_na)+
+    theme_bw()+
+    theme(
+      panel.grid = element_blank(),
+      axis.text = element_blank(), axis.ticks = element_blank(),
+      legend.position = "right",
+      legend.background = element_blank()
+    )+
+    labs(title = "Unintended pregnancy (model-estimated), 2015-2019",
+         fill = "Annual estimate\n(per 1,000)",
+         color = NULL, lwd = NULL)+
+    guides(color = "none", lwd = "none", label = "none")+
+    theme(axis.title = element_blank())+
+    coord_sf(
+      xlim = c(max(-180, bbox_selected_SUR()[[1]]-20), min(180,bbox_selected_SUR()[[3]]+20)), 
+      ylim = c(max(-55.67295, bbox_selected_SUR()[[2]]-20), min(83.6341,bbox_selected_SUR()[[4]]+20)))
+  
+  if(sur_area() > 10^11){p2<-p1} else{p2<-p1+geom_rect(
+    aes(
+      xmin = bbox_selected_SUR()["xmin"]-1,
+      xmax = bbox_selected_SUR()["xmax"]+1,
+      ymin = bbox_selected_SUR()["ymin"]-1,
+      ymax = bbox_selected_SUR()["ymax"]+1
+    ),
+    fill = "transparent",      # Make the rectangle hollow
+    color = "red",             # Set the border color
+    linewidth = 0.5            # Set the border thickness
+  )}
+  
+  p3<-p1+
+    scale_linewidth_manual(values = c(0.2, 0.1))+
+    coord_sf(
+      xlim = c(bbox_selected_SUR()[[1]], bbox_selected_SUR()[[3]]), 
+      ylim = c(bbox_selected_SUR()[[2]], bbox_selected_SUR()[[4]]))+guides(fill = "none")+labs(title = NULL)
+  
+  if(sur_area() > 10^11){p2} else{p2+p3}
+})
+
+### Met need for family planning -------------------------------
+output$family_planning <- renderPlot({
+  p1<- family_planning |> 
+    filter(!is.na(COUNTRY)) |> 
+    group_by(COUNTRY) |> 
+    slice_max(order_by = year, n = 1) |> ungroup() |> 
+    right_join(state_geo, join_by(COUNTRY == iso3)) |> 
+    mutate(selected_sur = factor(case_when(country == input$selected_SUR ~ input$selected_SUR, 
+                                           .default = "Other"), 
+                                 levels = c(input$selected_SUR, "Other"))) |> 
+    ggplot(aes(geometry = polygon, fill = value_cat, color = selected_sur, lwd = selected_sur))+
+    geom_sf()+
+    scale_linewidth_manual(values=c(0.8, 0.3))+
+    scale_color_manual(values = c("blue3", "grey90"))+
+    scale_fill_brewer(palette = "RdYlBu", na.value = "grey50", labels = relabel_na)+
+    theme_bw()+
+    theme(
+      panel.grid = element_blank(),
+      axis.text = element_blank(), axis.ticks = element_blank(),
+      legend.position = "right",
+      legend.background = element_blank()
+    )+
+    labs(title = str_wrap("Women of reproductive age (aged 15-49 years) who have their need for family planning satisfied with modern methods (%), latest year", 60),
+         fill = NULL,
+         color = NULL, lwd = NULL)+
+    guides(color = "none", lwd = "none", label = "none")+
+    theme(axis.title = element_blank())+
+    coord_sf(
+      xlim = c(max(-180, bbox_selected_SUR()[[1]]-20), min(180,bbox_selected_SUR()[[3]]+20)), 
+      ylim = c(max(-55.67295, bbox_selected_SUR()[[2]]-20), min(83.6341,bbox_selected_SUR()[[4]]+20)))
+  
+  if(sur_area() > 10^11){p2<-p1} else{p2<-p1+geom_rect(
+    aes(
+      xmin = bbox_selected_SUR()["xmin"]-1,
+      xmax = bbox_selected_SUR()["xmax"]+1,
+      ymin = bbox_selected_SUR()["ymin"]-1,
+      ymax = bbox_selected_SUR()["ymax"]+1
+    ),
+    fill = "transparent",      # Make the rectangle hollow
+    color = "red",             # Set the border color
+    linewidth = 0.5            # Set the border thickness
+  )}
+  
+  p3<-p1+
+    scale_linewidth_manual(values = c(0.2, 0.1))+
+    coord_sf(
+      xlim = c(bbox_selected_SUR()[[1]], bbox_selected_SUR()[[3]]), 
+      ylim = c(bbox_selected_SUR()[[2]], bbox_selected_SUR()[[4]]))+guides(fill = "none")+labs(title = NULL)
+  
+  if(sur_area() > 10^11){p2} else{p2+p3}
+})
+
+```
+
+## Abortion laws and family planning
+
+### Row {height=50%}
+```{r}
+plotOutput("abortion_map_sur")
+```
+
+### Row {height=50%}
+```{r}
+plotOutput("family_planning")
+```
+
+## Abortion rate and unintended pregnancy
+### Row {height=50%}
+```{r}
+plotOutput("abortion_rate")
+```
+
+### Row {height=50%}
+```{r}
+plotOutput("unintended_pregnancy")
 ```
