@@ -1,0 +1,215 @@
+---
+title: "Analyses for considering the Right to Health in the Universal Periodic Review"
+author: "Anshu Uppal"
+date: "2025-08-12"
+date-modified: last-modified # Dynamic modified date
+format:
+        html:
+                code-fold: true
+                toc: true
+                toc-location: left  # Place TOC on the left side
+                toc-depth: 5        # Include headers up to level 3 (###)
+                toc-title: "On this page" # Custom title for the TOC
+                smooth-scroll: true # Enable smooth scrolling
+                embed-resources: true # Make the html file self contained
+                grid: 
+                  body-width: 1100px
+                  margin-width: 100px
+reference-location: margin
+citation-location: margin
+fig-format: svg
+knitr: 
+  opts_chunk: 
+    dev: svglite
+    fig.path: /output/figures/analysis/
+---
+
+```{r}
+#| message: false
+
+# install.packages("pacman")
+pacman::p_load(
+  here,
+  tidyverse,
+  # plotly,
+  janitor,
+  DT,
+  sf,
+  necountries,
+  patchwork,
+  Hmisc,
+  ggmapinset,
+  cowplot,
+  magick,
+  scatterpie,
+  ggnewscale
+)
+
+# Load or install packages from GitHub:
+pacman::p_load_gh(
+  "DrMattG/SDGsR", # Uses API to get SDGs data
+  "aphp/rgho" # Uses API to get data from Global Health Observatory
+  # "PPgp/wpp2024" # United Nations World Population Prospects 2024
+  # "m-muecke/isocountry" # Get ISO codes for countries
+)
+
+# Load in custom functions
+source(here("utils.R"))
+# # Load external data
+source(here("code", "external_data.R"))
+
+# Read in pre-processed datasets
+sdg_data <- readRDS(here("data", "SDG_data_enhanced.rds")) |> droplevels()
+state_geo <- readRDS(here("output", "state_geo_enhanced.rds"))
+nearest_neighbors_list <- readRDS(here("output", "nearest_neighbors_list.rds"))
+country_list <- tibble(
+  country = state_geo$country,
+  english_formal = state_geo$english_formal
+)
+```
+
+```{r}
+#| fig-height: 9.5
+#| fig-width: 8
+#| message: false
+a_1 <- sdg_data |> 
+  left_join(state_geo |> sf::st_drop_geometry(), join_by(state_under_review == country)) |> 
+    select(wbregion, cycle, state_under_review, health_related:maternal_health, response_upr) |> 
+    group_by(wbregion, cycle, response_upr) |> 
+    summarise(across(c(health_related:maternal_health), ~ sum(.x !="Other"))) |> 
+    ungroup() |> 
+    filter(response_upr %in% c("Supported", "Noted/Other")) |>
+    pivot_longer(cols = health_related:maternal_health, 
+                 names_to = "theme", 
+                 values_to = "n"
+    )
+  
+  a_2 <- sdg_data |> 
+  left_join(state_geo |> sf::st_drop_geometry(), join_by(state_under_review == country)) |> 
+    select(wbregion, cycle, state_under_review, health_related:maternal_health, response_upr) |> 
+    # mutate(across(c(health_related:maternal_health), ~ .x != "Other")) |> 
+    group_by(wbregion, cycle, response_upr) |> 
+    summarise(across(c(health_related:maternal_health), ~ sum(.x =="Other"))) |> 
+    ungroup() |> 
+    filter(response_upr %in% c("Supported", "Noted/Other")) |>
+    pivot_longer(cols = health_related:maternal_health, 
+                 names_to = "theme", 
+                 values_to = "n_other"
+    )
+  
+  a_3 <- sdg_data |> 
+  left_join(state_geo |> sf::st_drop_geometry(), join_by(state_under_review == country)) |> 
+    group_by(wbregion, cycle) |> 
+    summarise(health_n = sum(health_related !="Other")) |> 
+    ungroup()
+  
+  a <- left_join(a_1,a_2) |> 
+    left_join(a_3) |> 
+    mutate(cycle = fct_recode(cycle, "1"="Cycle 1", "2"="Cycle 2", "3"="Cycle 3", "4"="Cycle 4")) |> 
+    group_by(wbregion, cycle, theme) |> 
+    mutate(n_tot = sum(n)+sum(n_other)) |> 
+    mutate(n_tot_theme = sum(n)) |> 
+    mutate(perc = n/n_tot*100,
+           perc_theme = n_tot_theme/n_tot*100,
+           theme_perc_health = n_tot_theme/health_n*100) |> 
+    group_by(wbregion, cycle, theme) |> 
+    mutate(n_sup = paste0("(", sprintf("%1.0f", n/sum(n)*100), "%)"),
+           n_sup = case_when(n_tot_theme == 0 ~ "(NA)", .default = n_sup)) |> 
+    # mutate(n_sup = case_when(
+    #   response_upr == "Noted/Other" ~ "",
+    #   response_upr == "Supported" ~ paste0("(", sprintf("%1.0f", n/sum(n)*100), "%)"),
+    #   .default = NA
+    # )) |> 
+    ungroup() |> 
+    filter(!theme %in% c(
+      "health_related"
+      # , "abortion"
+      , "TB_malaria", "NTD"
+      # , "TB_malaria_NTD"
+    )) |> 
+    left_join(theme_labels, join_by(theme == variable))
+  
+  
+  selected_region <- unique(a$wbregion)
+
+  for (i in 1:length(selected_region)) {
+  a_region <-  a |> 
+    filter(wbregion == selected_region[i]) |> 
+    arrange(fct_rev(cycle), -n_tot_theme) |> 
+    mutate(theme_label = case_when(is.na(theme_label) ~ theme, .default = theme_label),
+           theme_label = fct_inorder(theme_label))
+  
+  max_a <- max(a_region |> pull(perc_theme))
+  theme_plot <- a_region |> 
+    # mutate(n_tot_theme = case_when(response_upr!="Supported" ~ "", 
+    #                                .default = as.character(n_tot_theme))) |> 
+    ggplot(aes(x = perc, y = fct_rev(cycle)))+
+    geom_col(aes(fill = response_upr))+
+    facet_grid(
+      rows = vars(theme_label), switch = "y",
+      labeller = labeller(theme_label = label_wrap_gen(50))
+    )+
+    labs(x = "Proportion of all recommendations per UPR cycle (%)", y = NULL,
+         fill = "State's response",
+         title = paste("Health-related recommendations in each cycle of the UPR\n", selected_region[i]),
+         caption = "*Numbers after the bars indicate N (% supported)")+
+    # theme_bw()+
+    theme_classic()+
+    # scale_y_discrete(expand = c(0.1, 0))+
+    scale_x_continuous(labels = function(x) paste0(x, "%"), 
+                       limits = c(0,max_a+2), 
+                       # sec.axis = dup_axis(name = NULL),
+                       expand = expansion(mult = c(0, 0.05)) # 0 exactly on axis
+    )+
+    theme(
+      legend.position = "inside",
+      legend.position.inside = c(1,0.5),
+      legend.justification = c("right", "center"),
+      legend.frame = element_rect(color = "black"),
+      legend.text = element_text(size = 12),
+      legend.title = element_text(size = 15),
+      axis.text.y = element_text(size = 10, face = "bold"), 
+      axis.text.x = element_text(size = 12),
+      plot.title = element_text(hjust = 0.5, size = 16, face = "bold"),
+      plot.title.position = "plot",
+      strip.placement = "outside",
+      strip.text.y.left = element_text(angle = 0, vjust = 1, size = 11),
+      strip.background = element_rect(fill = NA, linewidth = 1, color = "black", linetype = 1),
+      panel.grid = element_blank()
+    )+
+    geom_text(
+      data = a_region |> filter(response_upr == "Supported"),
+      aes(label = paste0(n_tot_theme, " ", n_sup), x = perc_theme),
+      hjust = -0.15, size = 3.5 , vjust=0.25
+    )
+  print(theme_plot)
+  }
+```
+
+```{r}
+mmr_05_23 <- MMR |> 
+  filter(!is.na(COUNTRY)) |> 
+  select(ParentLocation, COUNTRY, country_name, YEAR, NumericValue) |> 
+  mutate(NumericValue = round(NumericValue)) |> 
+  filter(YEAR %in% c(2005, 2016, 2023)) |> 
+  pivot_wider(names_from = YEAR, values_from = NumericValue, names_prefix = "mmr_")
+
+p1<-mmr_05_23 |> 
+  filter(country_name!="Cook Islands") |> 
+  mutate(increase = factor(case_when(mmr_2023>=mmr_2005 ~ "Increase", .default = "Decrease"), 
+                           levels = c("Increase", "Decrease"))) |> 
+  ggplot(aes(x=mmr_2005, y = mmr_2023, color = ParentLocation, text = country_name))+
+  geom_abline(intercept = 0, slope = 1, linetype = 2)+
+  labs(x="MMR in 2005 (axis on log-scale)", y="MMR in 2023 (axis on log-scale)")+
+  geom_point(
+    # aes(alpha = increase)
+    )+
+  theme_bw()+
+  # scale_alpha_manual(values = c(1,0.1))+
+  # guides(alpha = "none")+
+  # coord_trans(x="log10", y="log10")
+  scale_x_continuous(trans=scales::log10_trans()) + scale_y_continuous(trans='log10')
+
+plotly::ggplotly(p1, tooltip = c("text","mmr_2016","mmr_2005", "mmr_2023"))
+```
+
