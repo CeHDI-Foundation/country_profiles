@@ -116,29 +116,29 @@ gho_api <- ODataQuery::ODataQuery$new("https://ghoapi.azureedge.net/api")
 
 ## Metadata ####
 # Indicators list
-gho_indicators <- gho_api$path("Indicator")$retrieve()[[1]] |> select(-Language)
+gho_indicators <- gho_api$path("Indicator")$retrieve()$value |> select(-Language)
 
 # Dimensions list
-gho_dimensions <- gho_api$path("Dimension")$retrieve()[[1]]
+gho_dimensions <- gho_api$path("Dimension")$retrieve()$value
 # Countries list
-country_codes <- gho_api$path("Dimension", "COUNTRY", "DimensionValues")$retrieve()[[1]] |> 
+country_codes <- gho_api$path("Dimension", "COUNTRY", "DimensionValues")$retrieve()$value |> 
   select(Code) |> 
   rename(COUNTRY = Code) |> 
   left_join(state_geo |> select(iso3, country) |> sf::st_drop_geometry(), join_by(COUNTRY==iso3)) |> 
   rename(country_name = country)
 
 # Region list
-region_codes <- gho_api$path("Dimension", "REGION", "DimensionValues")$retrieve()[[1]] |> 
+region_codes <- gho_api$path("Dimension", "REGION", "DimensionValues")$retrieve()$value |> 
   select(Code, Title) |> 
   rename(REGION = Code, region_name = Title)
-UN_region_codes <- gho_api$path("Dimension", "UNREGION", "DimensionValues")$retrieve()[[1]] |> 
+UN_region_codes <- gho_api$path("Dimension", "UNREGION", "DimensionValues")$retrieve()$value |> 
   select(Code, Title) |> 
   rename(UNREGION = Code, UN_region_name = Title)
-WB_income_codes <- gho_api$path("Dimension", "WORLDBANKINCOMEGROUP", "DimensionValues")$retrieve()[[1]] |> 
+WB_income_codes <- gho_api$path("Dimension", "WORLDBANKINCOMEGROUP", "DimensionValues")$retrieve()$value |> 
   select(Code, Title) |> 
   rename(WORLDBANKINCOMEGROUP = Code, WB_income_group = Title)
 
-xxxcc <- gho_api$path("Dimension", "DHSMICSGEOREGION", "DimensionValues")$retrieve()[[1]]
+xxxcc <- gho_api$path("Dimension", "DHSMICSGEOREGION", "DimensionValues")$retrieve()$value
 
 
 ## Search GHO codes ####
@@ -150,12 +150,12 @@ gho_indicators |> filter(str_detect(IndicatorName, regex(search_term, ignore_cas
 
 ### UHC ####
 #### Get datasets ####
-UHC_AVAILABILITY_SCORE <- gho_api$path("UHC_AVAILABILITY_SCORE")$retrieve()[[2]] |> tibble()
-UHC_INDEX_REPORTED <- gho_api$path("UHC_INDEX_REPORTED")$retrieve()[[2]] |> tibble()
-UHC_SCI_CAPACITY <- gho_api$path("UHC_SCI_CAPACITY")$retrieve()[[2]] |> tibble()
-UHC_SCI_INFECT <- gho_api$path("UHC_SCI_INFECT")$retrieve()[[2]] |> tibble()
-UHC_SCI_NCD <- gho_api$path("UHC_SCI_NCD")$retrieve()[[2]] |> tibble()
-UHC_SCI_RMNCH <- gho_api$path("UHC_SCI_RMNCH")$retrieve()[[2]] |> tibble()
+UHC_AVAILABILITY_SCORE <- gho_api$path("UHC_AVAILABILITY_SCORE")$retrieve()$value |>  tibble()
+UHC_INDEX_REPORTED <- gho_api$path("UHC_INDEX_REPORTED")$retrieve()$value|> tibble()
+UHC_SCI_CAPACITY <- gho_api$path("UHC_SCI_CAPACITY")$retrieve()$value |> tibble()
+UHC_SCI_INFECT <- gho_api$path("UHC_SCI_INFECT")$retrieve()$value |> tibble()
+UHC_SCI_NCD <- gho_api$path("UHC_SCI_NCD")$retrieve()$value |> tibble()
+UHC_SCI_RMNCH <- gho_api$path("UHC_SCI_RMNCH")$retrieve()$value |> tibble()
 #### Combine into one ####
 UHC_all <- bind_rows(UHC_INDEX_REPORTED, 
                      UHC_SCI_CAPACITY, UHC_SCI_INFECT,
@@ -178,7 +178,7 @@ left_join(country_codes) |>
   )
 
 ## Maternal mortality ratio ####
-MMR <- gho_api$path("MDG_0000000026")$retrieve()[[2]] |> tibble() |> 
+MMR <- gho_api$path("MDG_0000000026")$retrieve()$value |> tibble() |> 
   mutate(
     COUNTRY = case_when(SpatialDimType == "COUNTRY" ~ SpatialDim),
     REGION = case_when(SpatialDimType %in% c("REGION", "GLOBAL")~SpatialDim)
@@ -205,10 +205,10 @@ MMR <- gho_api$path("MDG_0000000026")$retrieve()[[2]] |> tibble() |>
     )
   )
 
-aanh <- gho_api$path("UNICEF_PNCMOTHER")$retrieve()[[1]]
+aanh <- gho_api$path("UNICEF_PNCMOTHER")$retrieve()$value
 
 ## Health check after delivery ####
-postnatal_care <- gho_api$path("UNICEF_PNCMOTHER")$retrieve()[[1]] |> tibble() |> 
+postnatal_care <- gho_api$path("UNICEF_PNCMOTHER")$retrieve()$value |> tibble() |> 
   mutate(
     COUNTRY = case_when(SpatialDimType == "COUNTRY" ~ SpatialDim),
     REGION = case_when(SpatialDimType %in% c("REGION", "GLOBAL")~SpatialDim)
@@ -225,7 +225,7 @@ postnatal_care <- gho_api$path("UNICEF_PNCMOTHER")$retrieve()[[1]] |> tibble() |
     year = ymd(paste0(YEAR, "-01-01"))
   )
 
-postnatal_care_5 <- gho_api$path("pncall5")$retrieve()[[1]] |> tibble() |> 
+postnatal_care_5 <- gho_api$path("pncall5")$retrieve()$value |> tibble() |> 
   mutate(
     COUNTRY = case_when(SpatialDimType == "COUNTRY" ~ SpatialDim),
     REGION = case_when(SpatialDimType %in% c("REGION", "GLOBAL")~SpatialDim)
@@ -241,7 +241,7 @@ postnatal_care_5 <- gho_api$path("pncall5")$retrieve()[[1]] |> tibble() |>
   ) |> 
   filter(Dim1 == "SEX_FMLE")
 
-postnatal_care_3 <- gho_api$path("pncall3")$retrieve()[[1]] |> tibble() |> 
+postnatal_care_3 <- gho_api$path("pncall3")$retrieve()$value |> tibble() |> 
   mutate(
     COUNTRY = case_when(SpatialDimType == "COUNTRY" ~ SpatialDim),
     REGION = case_when(SpatialDimType %in% c("REGION", "GLOBAL")~SpatialDim)
@@ -259,7 +259,7 @@ postnatal_care_3 <- gho_api$path("pncall3")$retrieve()[[1]] |> tibble() |>
 # See: https://maternalhealthatlas.org/factsheets
 
 ## Births in health facility ####
-institutional_birth <- gho_api$path("SRHINSTITUTIONALBIRTH")$retrieve()[[1]] |> tibble() |> 
+institutional_birth <- gho_api$path("SRHINSTITUTIONALBIRTH")$retrieve()$value |> tibble() |> 
   mutate(
     COUNTRY = case_when(SpatialDimType == "COUNTRY" ~ SpatialDim),
     REGION = case_when(SpatialDimType %in% c("REGION", "GLOBAL")~SpatialDim)
@@ -275,7 +275,7 @@ institutional_birth <- gho_api$path("SRHINSTITUTIONALBIRTH")$retrieve()[[1]] |> 
   ) 
 
 ## HIV death ####
-HIV_death <- gho_api$path("HIV_0000000006")$retrieve()[[2]] |> tibble() |> 
+HIV_death <- gho_api$path("HIV_0000000006")$retrieve()$value |> tibble() |> 
   mutate(
     COUNTRY = case_when(SpatialDimType == "COUNTRY" ~ SpatialDim),
     REGION = case_when(SpatialDimType %in% c("REGION", "GLOBAL")~SpatialDim)
@@ -292,7 +292,7 @@ HIV_death <- gho_api$path("HIV_0000000006")$retrieve()[[2]] |> tibble() |>
 
 ## Family planning ####
 ### Need for family planning met ####
-family_planning <- gho_api$path("SDGFPALL")$retrieve()[[2]] |> tibble() |> 
+family_planning <- gho_api$path("SDGFPALL")$retrieve()$value |> tibble() |> 
   mutate(
     COUNTRY = case_when(SpatialDimType == "COUNTRY" ~ SpatialDim),
     REGION = case_when(SpatialDimType %in% c("REGION", "GLOBAL")~SpatialDim)
@@ -318,7 +318,7 @@ family_planning <- gho_api$path("SDGFPALL")$retrieve()[[2]] |> tibble() |>
     ))
 
 ### Modern contraceptive prevalence ####
-contraceptive_prevalence <- gho_api$path("cpmowho")$retrieve()[[1]] |>
+contraceptive_prevalence <- gho_api$path("cpmowho")$retrieve()$value |>
   mutate(
     COUNTRY = case_when(SpatialDimType == "COUNTRY" ~ SpatialDim),
     REGION = case_when(SpatialDimType %in% c("REGION", "GLOBAL")~SpatialDim)
@@ -334,7 +334,7 @@ contraceptive_prevalence <- gho_api$path("cpmowho")$retrieve()[[1]] |>
   )
 
 ### Unintended pregnancy ####
-unintended_pregnancy <- gho_api$path("SRH_PREGNANCY_UNINTENDED_RATE")$retrieve()[[2]] |> tibble() |> 
+unintended_pregnancy <- gho_api$path("SRH_PREGNANCY_UNINTENDED_RATE")$retrieve()$value |> tibble() |> 
   mutate(
     COUNTRY = case_when(SpatialDimType == "COUNTRY" ~ SpatialDim),
     REGION = case_when(SpatialDimType %in% c("REGION", "GLOBAL")~SpatialDim)
@@ -349,7 +349,7 @@ unintended_pregnancy <- gho_api$path("SRH_PREGNANCY_UNINTENDED_RATE")$retrieve()
     year = ymd(paste0(YEAR, "-01-01"))
   )
 ### Abortion rate ####
-abortion_rate <- gho_api$path("SRH_ABORTION_RATE")$retrieve()[[2]] |> tibble() |> 
+abortion_rate <- gho_api$path("SRH_ABORTION_RATE")$retrieve()$value |> tibble() |> 
   mutate(
     COUNTRY = case_when(SpatialDimType == "COUNTRY" ~ SpatialDim),
     REGION = case_when(SpatialDimType %in% c("REGION", "GLOBAL")~SpatialDim)
@@ -365,7 +365,7 @@ abortion_rate <- gho_api$path("SRH_ABORTION_RATE")$retrieve()[[2]] |> tibble() |
   )
 
 ### Own informed decisions ####
-informed_decisions <- gho_api$path("SG_DMK_SRCR_FN_ZS")$retrieve()[[1]] |> tibble() |> 
+informed_decisions <- gho_api$path("SG_DMK_SRCR_FN_ZS")$retrieve()$value |> tibble() |> 
   mutate(
     COUNTRY = case_when(SpatialDimType == "COUNTRY" ~ SpatialDim),
     REGION = case_when(SpatialDimType %in% c("REGION", "GLOBAL")~SpatialDim),
@@ -383,7 +383,7 @@ informed_decisions <- gho_api$path("SG_DMK_SRCR_FN_ZS")$retrieve()[[1]] |> tibbl
   )
 
 ## Skilled birth ####
-skilled_birth <- gho_api$path("MDG_0000000025")$retrieve()[[2]] |> tibble() |> 
+skilled_birth <- gho_api$path("MDG_0000000025")$retrieve()$value |> tibble() |> 
   mutate(
     COUNTRY = case_when(SpatialDimType == "COUNTRY" ~ SpatialDim),
     REGION = case_when(SpatialDimType %in% c("REGION", "GLOBAL")~SpatialDim)
@@ -411,7 +411,7 @@ skilled_birth <- gho_api$path("MDG_0000000025")$retrieve()[[2]] |> tibble() |>
 
 ## HPV ####
 ### National program ####
-HPV_national <- gho_api$path("NCD_CCS_hpv")$retrieve()[[1]] |> tibble() |> 
+HPV_national <- gho_api$path("NCD_CCS_hpv")$retrieve()$value |> tibble() |> 
   mutate(
     COUNTRY = case_when(SpatialDimType == "COUNTRY" ~ SpatialDim),
     REGION = case_when(SpatialDimType %in% c("REGION", "GLOBAL")~SpatialDim)
@@ -427,7 +427,7 @@ HPV_national <- gho_api$path("NCD_CCS_hpv")$retrieve()[[1]] |> tibble() |>
   ) 
 
 ### Coverage estimates ####
-HPV_coverage <- gho_api$path("SDGHPVRECEIVED")$retrieve()[[1]] |> tibble() |> 
+HPV_coverage <- gho_api$path("SDGHPVRECEIVED")$retrieve()$value |> tibble() |> 
   mutate(
     COUNTRY = case_when(SpatialDimType == "COUNTRY" ~ SpatialDim),
     REGION = case_when(SpatialDimType %in% c("REGION", "GLOBAL")~SpatialDim),
