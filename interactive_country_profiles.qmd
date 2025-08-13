@@ -33,13 +33,13 @@ pacman::p_load(
   ggnewscale
 )
 
-# Load or install packages from GitHub:
-pacman::p_load_gh(
-  "DrMattG/SDGsR", # Uses API to get SDGs data
-  "aphp/rgho" # Uses API to get data from Global Health Observatory
-  # "PPgp/wpp2024" # United Nations World Population Prospects 2024
-  # "m-muecke/isocountry" # Get ISO codes for countries
-)
+# # Load or install packages from GitHub:
+# pacman::p_load_gh(
+#   "DrMattG/SDGsR", # Uses API to get SDGs data
+#   "aphp/rgho" # Uses API to get data from Global Health Observatory
+#   # "PPgp/wpp2024" # United Nations World Population Prospects 2024
+#   # "m-muecke/isocountry" # Get ISO codes for countries
+# )
 
 # Load in custom functions
 source(here("utils.R"))
@@ -436,6 +436,34 @@ output$upr_themes_all <- renderPlot({
 })
 ```
 
+```{r}
+#| context: server
+
+output$DT_table <- renderDT(
+  filtered_upr() |>  
+  mutate(state_under_review = factor(state_under_review)) |> 
+  select(text, cycle, response_upr, health_related:maternal_health,
+         # groups, 
+         state_under_review, document_code, paragraph) |> 
+  DT::datatable(
+    filter = "top",
+    options = list(
+      pageLength = 100,
+      deferRender = TRUE,
+      scrollY = 800,
+      scrollX = TRUE,
+      scroller = TRUE,
+      autoWidth = TRUE,      
+      columnDefs = list(list(width = '500px', targets = c(0)),
+                        list(width = '200px', targets = c(1)))
+    ),
+    rownames = FALSE, # set to FALSE for cleaner look
+    class = 'cell-border stripe hover compact'
+  )
+)
+```
+
+
 ## Column {.tabset}
 ```{r}
 #| title: All recommendations
@@ -445,6 +473,11 @@ plotOutput("upr_themes_all")
 ```{r}
 #| title: Per UPR cycle
 plotOutput("upr_themes_cycle")
+```
+
+```{r}
+#| title: Data
+DTOutput("DT_table")
 ```
 
 ## Column 
