@@ -71,7 +71,7 @@ for (file_name in list.files(path = here("data", "API_data"),
 
 # Select the Region
 selectInput("selected_region", "Select Region:", 
-            choices = c("Global", unique(state_geo$wbregion)), 
+            choices = c("Global", unique(state_geo$subregion)), 
             selected = "Global")
 
 # Select the State under review
@@ -101,10 +101,10 @@ filtered_upr_region <- reactive({
     sdg_data |> 
       left_join(state_geo |> 
                   st_drop_geometry() |> 
-                  select(country, wbregion), 
+                  select(country, subregion), 
                 join_by(state_under_review == country)) |> 
-      filter(wbregion == input$selected_region) |> 
-      select(-wbregion)
+      filter(subregion == input$selected_region) |> 
+      select(-subregion)
   }
 })
 
@@ -114,7 +114,7 @@ region_selection <- reactive({
     state_geo
   } else{
     state_geo |> 
-      filter(wbregion == input$selected_region)
+      filter(subregion == input$selected_region)
   }
 })
 
@@ -128,9 +128,9 @@ observeEvent(input$selected_region, {
   )
 })
 
-# Get the SuR wbregion
+# Get the SuR subregion
 SUR_region <- reactive({
-  state_geo[state_geo$country==input$selected_SUR,]$wbregion
+  state_geo[state_geo$country==input$selected_SUR,]$subregion
 })
 
 # Get the area of the SuR
@@ -150,7 +150,7 @@ bbox_selected_SUR <- reactive({
 
 bbox_SUR_region <- reactive({
   state_geo |> 
-    filter(wbregion %in% c(SUR_region())) |>
+    filter(subregion %in% c(SUR_region())) |>
     # filter(region %in% c(chosen_region)) |> 
     # st_boundary() # Add a 2,000 km buffer around chosen country
     st_bbox()
