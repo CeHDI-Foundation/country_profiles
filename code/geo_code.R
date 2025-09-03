@@ -109,7 +109,7 @@ who_regions <- read_csv(here("data", "who_regions.csv")) |> select(-country) |>
 # https://thedocs.worldbank.org/en/doc/5c7e4e268baaafa6ef38d924be9279be-0090082025/original/FCSListFY26.pdf
 FCS_countries <- tibble("country" = state_geo_prep$country) |> 
   mutate(
-    FCS_status = case_when(
+    FCS_status = factor(case_when(
       country %in% c(
         "Afghanistan",
         "Burkina Faso",
@@ -151,7 +151,8 @@ FCS_countries <- tibble("country" = state_geo_prep$country) |>
         "Venezuela (Bolivarian Republic of)",
         "Zimbabwe") ~ "Institutional and social fragility",
       .default = "Other"
-    ))
+    ),
+    levels = c("Other", "Institutional and social fragility", "Conflict")))
 
 # ECSA-HC status
 ecsa_states <- read_csv(here("data", "ecsa_status.csv")) |> select(-country)
@@ -201,14 +202,14 @@ saveRDS(nearest_neighbors_list, here("output", "nearest_neighbors_list.rds"))
 # UN states listing with regional groupings
 # Downloaded from: https://unstats.un.org/unsd/methodology/m49/overview/
 
-UNSD <- read_csv2(here("data", "UNSD_Methodology.csv")) |>
-  janitor::clean_names() |>
-  mutate(
-    intermediate_region_name = case_when(
-      is.na(intermediate_region_name) ~ sub_region_name,
-      .default = intermediate_region_name),
-    least_developed_countries_ldc = case_when(
-      least_developed_countries_ldc == "x" ~ TRUE,
-      .default = FALSE)
-  ) |>
-  select(intermediate_region_name, iso_alpha3_code, least_developed_countries_ldc)
+# UNSD <- read_csv2(here("data", "UNSD_Methodology.csv")) |>
+#   janitor::clean_names() |>
+#   mutate(
+#     intermediate_region_name = case_when(
+#       is.na(intermediate_region_name) ~ sub_region_name,
+#       .default = intermediate_region_name),
+#     least_developed_countries_ldc = case_when(
+#       least_developed_countries_ldc == "x" ~ TRUE,
+#       .default = FALSE)
+#   ) |>
+#   select(intermediate_region_name, iso_alpha3_code, least_developed_countries_ldc)
