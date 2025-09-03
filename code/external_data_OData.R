@@ -2,33 +2,26 @@
 pacman::p_load(
   here,
   tidyverse,
+  dplyr,forcats,ggplot2,magrittr,readr,readxl,stringr,tibble,tidyr,lubridate,
   # plotly,
   janitor,
-  DT,
   sf,
-  necountries,
-  patchwork
-  # Hmisc
+  ODataQuery
 )
 
-# Load or install packages from GitHub:
-pacman::p_load_gh(
-  # "DrMattG/SDGsR", # Uses API to get SDGs data
-  "ODataQuery" # More general API use of OData protocol
-  # "aphp/rgho" # Uses API to get data from Global Health Observatory
-  # "PPgp/wpp2024" # United Nations World Population Prospects 2024
-  # "m-muecke/isocountry" # Get ISO codes for countries
-)
+# # Load or install packages from GitHub:
+# pacman::p_load_gh(
+#   # "DrMattG/SDGsR", # Uses API to get SDGs data
+#   "ODataQuery" # More general API use of OData protocol
+#   # "aphp/rgho" # Uses API to get data from Global Health Observatory
+#   # "PPgp/wpp2024" # United Nations World Population Prospects 2024
+#   # "m-muecke/isocountry" # Get ISO codes for countries
+# )
 
 state_geo <- readRDS(here("output", "state_geo_enhanced.rds"))
 
 # Load in custom functions
-source(here("utils.R"))
-
-country_list <- tibble(
-  country = state_geo$country,
-  english_formal = state_geo$english_formal
-)
+# source(here("utils.R"))
 
 theme_labels <- tribble(
   ~"variable", ~"theme_label",
@@ -109,6 +102,51 @@ world_abortion_laws <- readxl::read_xlsx(here("data", "world_abortion_laws.xlsx"
     .default = country
   ))
 
+
+# WHO ####
+
+live_births <- readxl::read_xlsx(here("data", "Data 2025-08-20 12-18.xlsx"), 
+                                 sheet = "Data") |> 
+  janitor::clean_names() |> 
+  filter(indicator=="Number of births (thousands)") |> 
+  select(year:country_iso_3_code, value_numeric) |> 
+  mutate(year = as.numeric(year)) |> 
+  rename(livebirths = value_numeric)
+
+live_births_wide <- live_births |> 
+  pivot_wider(
+    names_from = year, values_from = livebirths, names_prefix = "livebirths_"
+  )
+
+maternal_deaths <- readxl::read_xlsx(here("data", "Data 2025-08-20 12-18.xlsx"), 
+                                 sheet = "Data") |> 
+  janitor::clean_names() |> 
+  filter(indicator=="Number of maternal deaths") |> 
+  select(year:country_iso_3_code, value_numeric) |> 
+  mutate(year = as.numeric(year)) |> 
+  rename(maternal_deaths = value_numeric)
+
+maternal_deaths_wide <- maternal_deaths |> 
+  pivot_wider(
+    names_from = year, values_from = maternal_deaths, names_prefix = "maternal_deaths_"
+  )
+
+mmr_WHO <- readxl::read_xlsx(here("data", "Data 2025-08-20 12-18.xlsx"), 
+                                     sheet = "Data") |> 
+  janitor::clean_names() |> 
+  filter(indicator=="Maternal mortality ratio (per 100 000 live births) (SDG 3.1.1)") |> 
+  select(year:country_iso_3_code, value_numeric) |> 
+  mutate(year = as.numeric(year)) |> 
+  rename(mmr_WHO = value_numeric)
+
+mmr_WHO_wide <- mmr_WHO |> 
+  pivot_wider(
+    names_from = year, values_from = mmr_WHO, names_prefix = "livebirths_"
+  )
+
+mmr_data_WHO <- mmr_WHO |> left_join(maternal_deaths) |> left_join(live_births) |> 
+  mutate(mmr_calc = maternal_deaths/(livebirths/100))
+
 # GHO ####
 ## API queries ####
 gho_api <- ODataQuery::ODataQuery$new("https://ghoapi.azureedge.net/api")
@@ -138,10 +176,9 @@ WB_income_codes <- gho_api$path("Dimension", "WORLDBANKINCOMEGROUP", "DimensionV
   rename(WORLDBANKINCOMEGROUP = Code, WB_income_group = Title)
 
 
-
 ## Search GHO codes ####
-search_term <- "partum|natal"
-gho_indicators |> filter(str_detect(IndicatorName, regex(search_term, ignore_case = TRUE))|
+search_term <- "reproductive"
+search_term_results <- gho_indicators |> filter(str_detect(IndicatorName, regex(search_term, ignore_case = TRUE))|
                            str_detect(IndicatorCode, regex(search_term, ignore_case = TRUE)))
 
 ## Indicators ####
@@ -268,7 +305,7 @@ institutional_birth <- gho_api$path("SRHINSTITUTIONALBIRTH")$retrieve()$value |>
     # NumericValue = as.numeric(NumericValue),
     across(c(NumericValue:High), ~ as.numeric(.x)),
     year = ymd(paste0(YEAR, "-01-01"))
-  ) 
+  ) |> arrange(YEAR) |> group_by(COUNTRY, YEAR) |> slice_head(n=1)
 
 ## HIV death ####
 HIV_death <- gho_api$path("HIV_0000000006")$retrieve()$value |> tibble() |> 
@@ -360,6 +397,8 @@ abortion_rate <- gho_api$path("SRH_ABORTION_RATE")$retrieve()$value |> tibble() 
     year = ymd(paste0(YEAR, "-01-01"))
   )
 
+### Adolescent birth rate ####
+
 ### Own informed decisions ####
 informed_decisions <- gho_api$path("SG_DMK_SRCR_FN_ZS")$retrieve()$value |> tibble() |> 
   mutate(
@@ -405,6 +444,11 @@ skilled_birth <- gho_api$path("MDG_0000000025")$retrieve()$value |> tibble() |>
       levels = c("<60", "60-69", "70-79", "80-89", "90-97", "98+")
     ))
 
+## Density of nursing and midwifery personnel ####
+
+
+
+
 ## HPV ####
 ### National program ####
 HPV_national <- gho_api$path("NCD_CCS_hpv")$retrieve()$value |> tibble() |> 
@@ -440,9 +484,33 @@ HPV_coverage <- gho_api$path("SDGHPVRECEIVED")$retrieve()$value |> tibble() |>
     year = ymd(paste0(YEAR, "-01-01"))
   )
 
+# NMIRF status -------------------------------
+# Data extracted from Annex 02 of URG's report https://www.universal-rights.org/urg-policy-reports/the-emergence-and-evolution-of-national-mechanisms-for-implementation-reporting-and-follow-up/
+
+nmirf_X <- read_csv(here("data", "NMIRF_status.csv")) |> 
+  janitor::clean_names() |> 
+  rename(iso3 = iso_3166_1, nmirf_classification = state_classification_in_report)
+
+nmirf_Y <- read_csv(here("data", "NMIRF_Y.csv")) |> 
+  janitor::clean_names() |> 
+  rename(iso3 = iso_3166_1)
+
+NMIRF <- left_join(nmirf_X, nmirf_Y) |> 
+  mutate(
+    nmirf_classification = factor(
+      nmirf_classification,
+      levels = c("NMIRF", "Single inter-ministerial", "Ad hoc inter-ministerial", "Single ministerial", "Hybrid")
+    ))
+rm(nmirf_X, nmirf_Y)
+
 # Remove non-indicator objects -----------------------
 rm(
-  country_codes, country_list, gho_dimensions, gho_indicators, region_codes, 
-  state_geo, theme_labels, UN_region_codes, WB_income_codes, 
-  world_abortion_laws
+  country_codes, gho_dimensions, gho_indicators, region_codes, 
+  state_geo, theme_labels, gestational_text, UN_region_codes, WB_income_codes, 
+  search_term, search_term_results
   )
+
+# Save all objects to .rds files
+lapply(ls(), function(obj_name) {
+  saveRDS(get(obj_name), file = here("data", "API_data", paste0(obj_name, ".rds")))
+})

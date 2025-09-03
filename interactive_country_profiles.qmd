@@ -1,12 +1,15 @@
 ---
 title: "Country Profiles and the UPR"
-author: "Anshu Uppal"
+# author: "Anshu Uppal"
 date-modified: last-modified # Dynamic modified date
 format: 
         dashboard:
                 orientation: columns
                 nav-buttons: [github]
                 github: https://github.com/CeHDI-Foundation/country_profiles
+theme: 
+  - cosmo
+  - custom.scss
 logo: images/logo_5.png
 server: shiny
 ---
@@ -69,13 +72,18 @@ for (file_name in list.files(path = here("data", "API_data"),
 ```{r}
 # Create the dropdown selection objects
 
+# Select regional grouping
+selectInput("selected_regional_grouping", "Select Regional grouping:", 
+            choices = c("Sub-regions", "World Bank regions", "WHO regions"), 
+            selected = "Sub-regions")
+
 # Select the Region
 selectInput("selected_region", "Select Region:", 
-            choices = c("Global", unique(state_geo$subregion)), 
+            choices = c("Global", levels(state_geo$subregion)), 
             selected = "Global")
 
 # Select the State under review
-selectInput("selected_SUR", "Select State under Review:",
+selectInput("selected_SUR", "Select State Under Review:",
             choices = unique(state_geo$country),
             multiple = FALSE
             # , options = pickerOptions(
@@ -87,6 +95,21 @@ selectInput("selected_SUR", "Select State under Review:",
 
 ```{r}
 #| context: server
+# Reactive expression to filter data to chosen Region
+sdg_data_dashboard <- reactive({
+  sdg_data |>
+  left_join(state_geo |> 
+              st_drop_geometry() |> 
+              select(country, subregion, wbregion, WHO_region),
+            join_by(state_under_review == country)) |> 
+    mutate(region_dashboard = case_when(
+      selected_regional_grouping == "Sub-regions"      ~ subregion,
+      selected_regional_grouping == "World Bank regions" ~ wbregion,
+      selected_regional_grouping == "WHO regions"       ~ WHO_region
+    )) |> 
+  droplevels()
+})
+
 # Reactive expression to filter data to chosen Region
 filtered_upr <- reactive({
   sdg_data |> 
@@ -117,6 +140,8 @@ region_selection <- reactive({
       filter(subregion == input$selected_region)
   }
 })
+
+
 
 # Observe changes in the 'selected_region' input, and update setting choices
 observeEvent(input$selected_region, {
@@ -201,7 +226,11 @@ output$global_map <- renderPlot({
 # Disclaimer
 This dashboard display the results of a **preliminary** analysis regarding recommendations from the first four cycles of the Universal Periodic Review (UPR). ***Results are subject to change as the classification methodology continues to be refined***.
 
-Data related to various indicators (e.g. maternal mortality ratio and estimated abortion rates) were accessed via the Global Health Observatory's API (see <https://www.who.int/data/gho/info/gho-odata-api>), and data regarding the causes of maternal death were obtained using the IHME's GBD Results tool: <https://vizhub.healthdata.org/gbd-results/>.
+UPR recommendations were downloaded from a database maintained by the Danish Institute for Human Rights: the ["SDG-Human Rights Data Explorer"](https://www.humanrights.dk/sdg-human-rights-data-explorer). Their database in turn relies partly on UPR Info's [Database of Recommendations](https://upr-info-database.uwazi.io/).
+
+Data related to various indicators (e.g. maternal mortality ratio and estimated abortion rates) were accessed via the [Global Health Observatory's API](https://www.who.int/data/gho/info/gho-odata-api), and data regarding the causes of maternal death were obtained using the [IHME's GBD Results tool](https://vizhub.healthdata.org/gbd-results/).
+
+
 
 **Map disclaimer:** CeHDI makes no statement or judgment about the legal status or borders of any country, territory, or city shown on these maps. The information is for reference only.
 :::
@@ -215,44 +244,46 @@ plotOutput("global_map")
 #| context: server
 
 output$global_plot <- renderPlot({
-upr_rec_global <- filtered_upr_region() |> 
-  droplevels() |> 
-  group_by(cycle, state_under_review) |> 
-  count(health_related, .drop = FALSE) |> 
-  group_by(cycle, health_related) |> mutate(med_n = median(n)) |> 
-  select(cycle, health_related, med_n) |> distinct() |> 
-  group_by(cycle) |> 
-  mutate(med_n_tot = sum(med_n),
-         perc = (med_n/med_n_tot)*100,
-         perc = case_when(health_related == "Other" ~ "",
-                          .default = paste0(sprintf("%1.0f",perc), "%")))
-
-upr_rec_global |> 
-  ggplot(aes(x = cycle, y = med_n, fill = health_related))+
-  scale_fill_manual(values = c("Health-related" = "#FFC300", "Other" = "cornflowerblue"))+
-  geom_bar(stat = "identity")+
-  labs(y = "Median number of recommendations", x = "UPR Cycle", 
-       title = paste0("Median number of recommendations received by States*\n", input$selected_region),
-       fill = NULL,
-       caption = "*Cycle 4 is currently underway")+
-  geom_text(aes(label = perc), position = position_stack(vjust = 0.5), size = 5)+
-  geom_text(aes(label = sprintf("%1.0f", med_n_tot), y = med_n_tot, vjust =-0.2), size = 5, fontface = "bold")+
-  theme_bw()+
-  # scale_fill_manual(values = c("Health-related" = "#FFC300", "Other" = "cornflowerblue"))+
-  # scale_y_continuous(limits = c(0,350))+
-  theme(panel.grid = element_blank(),
-        axis.text.x = element_text(size = 12),
-        axis.text.y = element_text(size = 12),
-        axis.title.x = element_blank(),
-        axis.title.y = element_text(size = 14),
-        strip.text = element_text(size = 18),
-        plot.caption = element_text(size = 14),
-        # title = element_blank(),
-        legend.position = "inside",
-        legend.position.inside = c(0,1),
-        legend.justification = c("left", "top"),
-        legend.text = element_text(size = 18),
-        legend.background = element_blank())
+  upr_rec_global <- filtered_upr_region() |> 
+    droplevels() |> 
+    group_by(cycle, state_under_review) |> 
+    count(health_related, .drop = FALSE) |> 
+    group_by(cycle, health_related) |> mutate(med_n = median(n)) |> 
+    select(cycle, health_related, med_n) |> distinct() |> 
+    group_by(cycle) |> 
+    mutate(med_n_tot = sum(med_n),
+           perc = (med_n/med_n_tot)*100,
+           perc = case_when(health_related == "Other" ~ "",
+                            .default = paste0(sprintf("%1.0f",perc), "%")))
+  
+  upr_rec_global |> 
+    ggplot(aes(x = cycle, y = med_n, fill = health_related))+
+    scale_fill_manual(values = c("Health-related" = "#E69F00", "Other" = "grey80"))+
+    
+    
+    geom_bar(stat = "identity")+
+    labs(y = "Median number of recommendations", x = "UPR Cycle", 
+         title = paste0("Median number of recommendations received by States*\n", input$selected_region),
+         fill = NULL,
+         caption = "*Cycle 4 is currently underway")+
+    geom_text(aes(label = perc), position = position_stack(vjust = 0.5), size = 5)+
+    geom_text(aes(label = sprintf("%1.0f", med_n_tot), y = med_n_tot, vjust =-0.2), size = 5, fontface = "bold")+
+    theme_bw()+
+    # scale_fill_manual(values = c("Health-related" = "#FFC300", "Other" = "cornflowerblue"))+
+    # scale_y_continuous(limits = c(0,350))+
+    theme(panel.grid = element_blank(),
+          axis.text.x = element_text(size = 12),
+          axis.text.y = element_text(size = 12),
+          axis.title.x = element_blank(),
+          axis.title.y = element_text(size = 14),
+          strip.text = element_text(size = 18),
+          plot.caption = element_text(size = 14),
+          # title = element_blank(),
+          legend.position = "inside",
+          legend.position.inside = c(0,1),
+          legend.justification = c("left", "top"),
+          legend.text = element_text(size = 18),
+          legend.background = element_blank())
 })
 
 ```
@@ -261,107 +292,107 @@ upr_rec_global |>
 #| context: server
 output$upr_themes_cycle_global <- renderPlot({
   a_1 <- filtered_upr_region() |> 
-  select(cycle, health_related:maternal_health, response_upr) |> 
-  group_by(cycle, response_upr) |> 
-  summarise(across(c(health_related:maternal_health), ~ sum(.x !="Other"))) |> 
-  ungroup() |> 
-  filter(response_upr %in% c("Supported", "Noted/Other")) |>
-  pivot_longer(cols = health_related:maternal_health, 
-               names_to = "theme", 
-               values_to = "n"
-  )
-
-a_2 <- filtered_upr_region() |> 
-  select(cycle, health_related:maternal_health, response_upr) |> 
-  # mutate(across(c(health_related:maternal_health), ~ .x != "Other")) |> 
-  group_by(cycle, response_upr) |> 
-  summarise(across(c(health_related:maternal_health), ~ sum(.x =="Other"))) |> 
-  ungroup() |> 
-  filter(response_upr %in% c("Supported", "Noted/Other")) |>
-  pivot_longer(cols = health_related:maternal_health, 
-               names_to = "theme", 
-               values_to = "n_other"
-  )
-
-a_3 <- filtered_upr_region() |> 
-  group_by(cycle) |> 
-  summarise(health_n = sum(health_related !="Other")) |> 
-  ungroup()
-
-a <- left_join(a_1,a_2) |> 
-  left_join(a_3) |> 
-  mutate(cycle = fct_recode(cycle, "1"="Cycle 1", "2"="Cycle 2", "3"="Cycle 3", "4"="Cycle 4")) |> 
-  group_by(cycle, theme) |> 
-  mutate(n_tot = sum(n)+sum(n_other)) |> 
-  mutate(n_tot_theme = sum(n)) |> 
-  mutate(perc = n/n_tot*100,
-         perc_theme = n_tot_theme/n_tot*100,
-         theme_perc_health = n_tot_theme/health_n*100) |> 
-  group_by(cycle, theme) |> 
-  mutate(n_sup = paste0("(", sprintf("%1.0f", n/sum(n)*100), "%)"),
-         n_sup = case_when(n_tot_theme == 0 ~ "(NA)", .default = n_sup)) |> 
-  # mutate(n_sup = case_when(
-  #   response_upr == "Noted/Other" ~ "",
-  #   response_upr == "Supported" ~ paste0("(", sprintf("%1.0f", n/sum(n)*100), "%)"),
-  #   .default = NA
-  # )) |> 
-  ungroup() |> 
-  filter(!theme %in% c(
-    "health_related"
-    # , "abortion"
-    , "TB_malaria", "NTD"
-    # , "TB_malaria_NTD"
-  )) |> 
-  left_join(theme_labels, join_by(theme == variable)) |> 
-  arrange(fct_rev(cycle), -n_tot_theme) |> 
-  mutate(theme_label = case_when(is.na(theme_label) ~ theme, .default = theme_label),
-         theme_label = fct_inorder(theme_label))
-
-max_a <- max(a$perc_theme)
-theme_plot <- a |> 
-  # mutate(n_tot_theme = case_when(response_upr!="Supported" ~ "", 
-  #                                .default = as.character(n_tot_theme))) |> 
-  ggplot(aes(x = perc, y = fct_rev(cycle)))+
-  geom_col(aes(fill = response_upr))+
-  facet_grid(
-    rows = vars(theme_label), switch = "y",
-    labeller = labeller(theme_label = label_wrap_gen(50))
-  )+
-  labs(x = "Proportion of all recommendations per UPR cycle (%)", y = NULL,
-       fill = "State's response",
-       title = paste0("Health-related recommendations in each cycle of the UPR\n", input$selected_region),
-       caption = "*Numbers after the bars indicate N (% supported)")+
-  # theme_bw()+
-  theme_classic()+
-  # scale_y_discrete(expand = c(0.1, 0))+
-  scale_x_continuous(labels = function(x) paste0(x, "%"), 
-                     limits = c(0,max_a+2), 
-                     # sec.axis = dup_axis(name = NULL),
-                     expand = expansion(mult = c(0, 0.05)) # 0 exactly on axis
-  )+
-  theme(
-    legend.position = "inside",
-    legend.position.inside = c(1,0.01),
-    legend.justification = c("right", "bottom"),
-    legend.frame = element_rect(color = "black"),
-    legend.text = element_text(size = 12),
-    legend.title = element_text(size = 15),
-    legend.background = element_rect(fill = "transparent"),
-    axis.text.y = element_text(size = 10, face = "bold"), 
-    axis.text.x = element_text(size = 12),
-    plot.title = element_text(hjust = 0.5, size = 16, face = "bold"),
-    plot.title.position = "plot",
-    plot.caption = element_text(size=14),
-    strip.placement = "outside",
-    strip.text.y.left = element_text(angle = 0, vjust = 1, size = 11),
-    strip.background = element_rect(fill = NA, linewidth = 1, color = "black", linetype = 1),
-    panel.grid = element_blank()
-  )+
-  geom_text(
-    data = a |> filter(response_upr == "Supported"),
-    aes(label = paste0(n_tot_theme, " ", n_sup), x = perc_theme),
-    hjust = -0.15, size = 3 , vjust=0.25
-  ); theme_plot
+    select(cycle, health_related:maternal_health, response_upr) |> 
+    group_by(cycle, response_upr) |> 
+    summarise(across(c(health_related:maternal_health), ~ sum(.x !="Other"))) |> 
+    ungroup() |> 
+    filter(response_upr %in% c("Supported", "Noted/Other")) |>
+    pivot_longer(cols = health_related:maternal_health, 
+                 names_to = "theme", 
+                 values_to = "n"
+    )
+  
+  a_2 <- filtered_upr_region() |> 
+    select(cycle, health_related:maternal_health, response_upr) |> 
+    # mutate(across(c(health_related:maternal_health), ~ .x != "Other")) |> 
+    group_by(cycle, response_upr) |> 
+    summarise(across(c(health_related:maternal_health), ~ sum(.x =="Other"))) |> 
+    ungroup() |> 
+    filter(response_upr %in% c("Supported", "Noted/Other")) |>
+    pivot_longer(cols = health_related:maternal_health, 
+                 names_to = "theme", 
+                 values_to = "n_other"
+    )
+  
+  a_3 <- filtered_upr_region() |> 
+    group_by(cycle) |> 
+    summarise(health_n = sum(health_related !="Other")) |> 
+    ungroup()
+  
+  a <- left_join(a_1,a_2) |> 
+    left_join(a_3) |> 
+    mutate(cycle = fct_recode(cycle, "1"="Cycle 1", "2"="Cycle 2", "3"="Cycle 3", "4"="Cycle 4")) |> 
+    group_by(cycle, theme) |> 
+    mutate(n_tot = sum(n)+sum(n_other)) |> 
+    mutate(n_tot_theme = sum(n)) |> 
+    mutate(perc = n/n_tot*100,
+           perc_theme = n_tot_theme/n_tot*100,
+           theme_perc_health = n_tot_theme/health_n*100) |> 
+    group_by(cycle, theme) |> 
+    mutate(n_sup = paste0("(", sprintf("%1.0f", n/sum(n)*100), "%)"),
+           n_sup = case_when(n_tot_theme == 0 ~ "(NA)", .default = n_sup)) |> 
+    # mutate(n_sup = case_when(
+    #   response_upr == "Noted/Other" ~ "",
+    #   response_upr == "Supported" ~ paste0("(", sprintf("%1.0f", n/sum(n)*100), "%)"),
+    #   .default = NA
+    # )) |> 
+    ungroup() |> 
+    filter(!theme %in% c(
+      "health_related"
+      # , "abortion"
+      , "TB_malaria", "NTD"
+      # , "TB_malaria_NTD"
+    )) |> 
+    left_join(theme_labels, join_by(theme == variable)) |> 
+    arrange(fct_rev(cycle), -n_tot_theme) |> 
+    mutate(theme_label = case_when(is.na(theme_label) ~ theme, .default = theme_label),
+           theme_label = fct_inorder(theme_label))
+  
+  max_a <- max(a$perc_theme)
+  theme_plot <- a |> 
+    # mutate(n_tot_theme = case_when(response_upr!="Supported" ~ "", 
+    #                                .default = as.character(n_tot_theme))) |> 
+    ggplot(aes(x = perc, y = fct_rev(cycle)))+
+    geom_col(aes(fill = response_upr))+
+    facet_grid(
+      rows = vars(theme_label), switch = "y",
+      labeller = labeller(theme_label = label_wrap_gen(50))
+    )+
+    labs(x = "Proportion of all recommendations per UPR cycle (%)", y = NULL,
+         fill = "State's response",
+         title = paste0("Health-related recommendations in each cycle of the UPR\n", input$selected_region),
+         caption = "*Numbers after the bars indicate N (% supported)")+
+    # theme_bw()+
+    theme_classic()+
+    # scale_y_discrete(expand = c(0.1, 0))+
+    scale_x_continuous(labels = function(x) paste0(x, "%"), 
+                       limits = c(0,max_a+2), 
+                       # sec.axis = dup_axis(name = NULL),
+                       expand = expansion(mult = c(0, 0.05)) # 0 exactly on axis
+    )+
+    theme(
+      legend.position = "inside",
+      legend.position.inside = c(1,0.01),
+      legend.justification = c("right", "bottom"),
+      legend.frame = element_rect(color = "black"),
+      legend.text = element_text(size = 12),
+      legend.title = element_text(size = 15),
+      legend.background = element_rect(fill = "transparent"),
+      axis.text.y = element_text(size = 10, face = "bold"), 
+      axis.text.x = element_text(size = 12),
+      plot.title = element_text(hjust = 0.5, size = 16, face = "bold"),
+      plot.title.position = "plot",
+      plot.caption = element_text(size=14),
+      strip.placement = "outside",
+      strip.text.y.left = element_text(angle = 0, vjust = 1, size = 11),
+      strip.background = element_rect(fill = NA, linewidth = 1, color = "black", linetype = 1),
+      panel.grid = element_blank()
+    )+
+    geom_text(
+      data = a |> filter(response_upr == "Supported"),
+      aes(label = paste0(n_tot_theme, " ", n_sup), x = perc_theme),
+      hjust = -0.15, size = 3 , vjust=0.25
+    ); theme_plot
 })
 ```
 
@@ -369,101 +400,101 @@ theme_plot <- a |>
 #| context: server
 output$upr_themes_all_global <- renderPlot({
   a_1 <- filtered_upr_region() |> 
-  select(cycle, health_related:maternal_health, response_upr) |> 
-  # mutate(across(c(health_related:maternal_health), ~ .x != "Other")) |> 
-  group_by(response_upr) |> 
-  summarise(across(c(health_related:maternal_health), ~ sum(.x !="Other"))) |> 
-  ungroup() |> 
-  filter(response_upr %in% c("Supported", "Noted/Other")) |>
-  pivot_longer(cols = health_related:maternal_health, 
-               names_to = "theme", 
-               values_to = "n"
-  )
-
-a_2 <- filtered_upr_region() |> 
-  select(cycle, health_related:maternal_health, response_upr) |> 
-  # mutate(across(c(health_related:maternal_health), ~ .x != "Other")) |> 
-  group_by(response_upr) |> 
-  summarise(across(c(health_related:maternal_health), ~ sum(.x =="Other"))) |> 
-  ungroup() |> 
-  filter(response_upr %in% c("Supported", "Noted/Other")) |>
-  pivot_longer(cols = health_related:maternal_health, 
-               names_to = "theme", 
-               values_to = "n_other"
-  )
-
-a <- left_join(a_1,a_2) |> 
-  group_by(theme) |> 
-  mutate(n_tot = sum(n)+sum(n_other)) |> 
-  mutate(n_tot_theme = sum(n)) |> 
-  mutate(perc = n/n_tot*100,
-         perc_theme = n_tot_theme/n_tot*100,
-         # theme_perc_health = n_tot_theme/health_n*100
-  ) |> 
-  group_by(theme) |> 
-  mutate(n_sup = paste0("(", sprintf("%1.0f", n/sum(n)*100), "%)"),
-         n_sup = case_when(n_tot_theme == 0 ~ "(NA)", .default = n_sup)) |> 
-  # mutate(n_sup = case_when(
-  #   response_upr == "Noted/Other" ~ "",
-  #   response_upr == "Supported" ~ paste0("(", sprintf("%1.0f", n/sum(n)*100), "%)"),
-  #   .default = NA
-  # )) |> 
-  ungroup() |> 
-  filter(!theme %in% c(
-    "health_related"
-    # , "abortion"
-    , "TB_malaria", "NTD"
-    # , "TB_malaria_NTD"
-  )) |> 
-  left_join(theme_labels, join_by(theme == variable)) |> 
-  arrange(-n_tot_theme) |> 
-  mutate(theme_label = case_when(is.na(theme_label) ~ theme, .default = theme_label),
-         theme_label = fct_inorder(theme_label))
-
-
-max_a <- max(a$perc_theme)
-a |> 
-  # mutate(n_tot_theme = case_when(response_upr!="Supported" ~ "", 
-  #                                .default = as.character(n_tot_theme))) |> 
-  ggplot(aes(x = perc, y = fct_rev(theme_label)))+
-  geom_col(aes(fill = response_upr))+
-  labs(x = "Proportion of all recommendations (%)", y = NULL,
-       fill = "State's response",
-       title = paste0("Health-related recommendations of the UPR, up to the fourth cycle\n",input$selected_region),
-       caption = "*Numbers after the bars indicate N (% supported)")+
-  # theme_bw()+
-  theme_classic()+
-  # scale_y_discrete(expand = c(0.1, 0))+
-  scale_x_continuous(labels = function(x) paste0(x, "%"), 
-                     limits = c(0,max_a+2), 
-                     # sec.axis = dup_axis(name = NULL),
-                     expand = expansion(mult = c(0, 0.05)) # 0 exactly on axis
-  )+
-  theme(
-    legend.position = "inside",
-    legend.position.inside = c(1,0),
-    legend.justification = c("right", "bottom"),
-    legend.frame = element_rect(color = "black"),
-    legend.text = element_text(size = 12),
-    legend.title = element_text(size = 15),
-    legend.background = element_rect(fill = "transparent"),
-    axis.text.y = element_text(size = 13),
-    axis.text.x = element_text(size = 8),
-    plot.title = element_text(hjust = 0.5),
-    plot.caption = element_text(size = 14),
-    axis.title.y = element_blank(),
-    plot.title.position = "plot",
-    panel.grid = element_blank()
-  )+
-  geom_text(
-    data = a |> filter(response_upr == "Supported"),
-    aes(label = paste0(n_tot_theme, " ", n_sup), x = perc_theme),
-    hjust = -0.15, size = 4 , vjust=0.25
-  )
+    select(cycle, health_related:maternal_health, response_upr) |> 
+    # mutate(across(c(health_related:maternal_health), ~ .x != "Other")) |> 
+    group_by(response_upr) |> 
+    summarise(across(c(health_related:maternal_health), ~ sum(.x !="Other"))) |> 
+    ungroup() |> 
+    filter(response_upr %in% c("Supported", "Noted/Other")) |>
+    pivot_longer(cols = health_related:maternal_health, 
+                 names_to = "theme", 
+                 values_to = "n"
+    )
+  
+  a_2 <- filtered_upr_region() |> 
+    select(cycle, health_related:maternal_health, response_upr) |> 
+    # mutate(across(c(health_related:maternal_health), ~ .x != "Other")) |> 
+    group_by(response_upr) |> 
+    summarise(across(c(health_related:maternal_health), ~ sum(.x =="Other"))) |> 
+    ungroup() |> 
+    filter(response_upr %in% c("Supported", "Noted/Other")) |>
+    pivot_longer(cols = health_related:maternal_health, 
+                 names_to = "theme", 
+                 values_to = "n_other"
+    )
+  
+  a <- left_join(a_1,a_2) |> 
+    group_by(theme) |> 
+    mutate(n_tot = sum(n)+sum(n_other)) |> 
+    mutate(n_tot_theme = sum(n)) |> 
+    mutate(perc = n/n_tot*100,
+           perc_theme = n_tot_theme/n_tot*100,
+           # theme_perc_health = n_tot_theme/health_n*100
+    ) |> 
+    group_by(theme) |> 
+    mutate(n_sup = paste0("(", sprintf("%1.0f", n/sum(n)*100), "%)"),
+           n_sup = case_when(n_tot_theme == 0 ~ "(NA)", .default = n_sup)) |> 
+    # mutate(n_sup = case_when(
+    #   response_upr == "Noted/Other" ~ "",
+    #   response_upr == "Supported" ~ paste0("(", sprintf("%1.0f", n/sum(n)*100), "%)"),
+    #   .default = NA
+    # )) |> 
+    ungroup() |> 
+    filter(!theme %in% c(
+      "health_related"
+      # , "abortion"
+      , "TB_malaria", "NTD"
+      # , "TB_malaria_NTD"
+    )) |> 
+    left_join(theme_labels, join_by(theme == variable)) |> 
+    arrange(-n_tot_theme) |> 
+    mutate(theme_label = case_when(is.na(theme_label) ~ theme, .default = theme_label),
+           theme_label = fct_inorder(theme_label))
+  
+  
+  max_a <- max(a$perc_theme)
+  a |> 
+    # mutate(n_tot_theme = case_when(response_upr!="Supported" ~ "", 
+    #                                .default = as.character(n_tot_theme))) |> 
+    ggplot(aes(x = perc, y = fct_rev(theme_label)))+
+    geom_col(aes(fill = response_upr))+
+    labs(x = "Proportion of all recommendations (%)", y = NULL,
+         fill = "State's response",
+         title = paste0("Health-related recommendations of the UPR, up to the fourth cycle\n",input$selected_region),
+         caption = "*Numbers after the bars indicate N (% supported)")+
+    # theme_bw()+
+    theme_classic()+
+    # scale_y_discrete(expand = c(0.1, 0))+
+    scale_x_continuous(labels = function(x) paste0(x, "%"), 
+                       limits = c(0,max_a+2), 
+                       # sec.axis = dup_axis(name = NULL),
+                       expand = expansion(mult = c(0, 0.05)) # 0 exactly on axis
+    )+
+    theme(
+      legend.position = "inside",
+      legend.position.inside = c(1,0),
+      legend.justification = c("right", "bottom"),
+      legend.frame = element_rect(color = "black"),
+      legend.text = element_text(size = 12),
+      legend.title = element_text(size = 15),
+      legend.background = element_rect(fill = "transparent"),
+      axis.text.y = element_text(size = 13),
+      axis.text.x = element_text(size = 8),
+      plot.title = element_text(hjust = 0.5),
+      plot.caption = element_text(size = 14),
+      axis.title.y = element_blank(),
+      plot.title.position = "plot",
+      panel.grid = element_blank()
+    )+
+    geom_text(
+      data = a |> filter(response_upr == "Supported"),
+      aes(label = paste0(n_tot_theme, " ", n_sup), x = perc_theme),
+      hjust = -0.15, size = 4 , vjust=0.25
+    )
 })
 ```
 
-## Column {.tabset}
+## Column {.tabset width=60%}
 ```{r}
 #| title: All recommendations
 plotOutput("upr_themes_all_global")
@@ -474,53 +505,53 @@ plotOutput("upr_themes_all_global")
 plotOutput("upr_themes_cycle_global")
 ```
 
-## Column 
+## Column {width=40%}
 ### Row {height=50%}
 ```{r}
 plotOutput("global_plot")
 ```
 
-# UPR: SuR
+# UPR: State Under Review
 ```{r}
 #| context: server
 
 output$plot <- renderPlot({
-upr_rec_countries <- filtered_upr() |> 
-  droplevels() |> 
-  group_by(cycle, state_under_review) |> 
-  count(health_related, .drop = FALSE) |> group_by(cycle, state_under_review, health_related) |> mutate(med_n = median(n)) |> 
-  select(cycle, state_under_review, health_related, med_n) |> distinct() |> 
-  group_by(cycle, state_under_review) |> 
-  mutate(n_tot = sum(med_n),
-         perc = (med_n/n_tot)*100,
-         perc = case_when(health_related == "Other" ~ "",
-                          .default = paste0(sprintf("%1.0f",perc), "%")))
-
-upr_rec_countries |> 
-  ggplot(aes(x = cycle, y = med_n, fill = health_related))+
-  scale_fill_manual(values = c("Health-related" = "#FFC300", "Other" = "cornflowerblue"))+
-  geom_bar(stat = "identity")+
-  labs(y = "Number of recommendations", x = "UPR Cycle", 
-       title = "Number of recommendations received by States, per UPR cycle",
-       fill = NULL)+
-  geom_text(aes(label = perc), position = position_stack(vjust = 0.5), size = 5)+
-  geom_text(aes(label = sprintf("%1.0f", n_tot), y = n_tot, vjust =-0.2), size = 5, fontface = "bold")+
-  theme_bw()+
-  # scale_fill_manual(values = c("Health-related" = "#FFC300", "Other" = "cornflowerblue"))+
-  # scale_y_continuous(limits = c(0,350))+
-  facet_wrap(.~state_under_review, nrow = 2)+
-  theme(panel.grid = element_blank(),
-        axis.text.x = element_text(size = 12),
-        axis.text.y = element_text(size = 12),
-        axis.title.x = element_blank(),
-        axis.title.y = element_text(size = 14),
-        strip.text = element_text(size = 18),
-        # title = element_blank(),
-        legend.position = "inside",
-        legend.position.inside = c(0,1),
-        legend.justification = c("left", "top"),
-        legend.text = element_text(size = 18),
-        legend.background = element_blank())
+  upr_rec_countries <- filtered_upr() |> 
+    droplevels() |> 
+    group_by(cycle, state_under_review) |> 
+    count(health_related, .drop = FALSE) |> group_by(cycle, state_under_review, health_related) |> mutate(med_n = median(n)) |> 
+    select(cycle, state_under_review, health_related, med_n) |> distinct() |> 
+    group_by(cycle, state_under_review) |> 
+    mutate(n_tot = sum(med_n),
+           perc = (med_n/n_tot)*100,
+           perc = case_when(health_related == "Other" ~ "",
+                            .default = paste0(sprintf("%1.0f",perc), "%")))
+  
+  upr_rec_countries |> 
+    ggplot(aes(x = cycle, y = med_n, fill = health_related))+
+    scale_fill_manual(values = c("Health-related" = "#E69F00", "Other" = "grey80"))+
+    geom_bar(stat = "identity")+
+    labs(y = "Number of recommendations", x = "UPR Cycle", 
+         title = "Number of recommendations received by States, per UPR cycle",
+         fill = NULL)+
+    geom_text(aes(label = perc), position = position_stack(vjust = 0.5), size = 5)+
+    geom_text(aes(label = sprintf("%1.0f", n_tot), y = n_tot, vjust =-0.2), size = 5, fontface = "bold")+
+    theme_bw()+
+    # scale_fill_manual(values = c("Health-related" = "#FFC300", "Other" = "cornflowerblue"))+
+    # scale_y_continuous(limits = c(0,350))+
+    facet_wrap(.~state_under_review, nrow = 2)+
+    theme(panel.grid = element_blank(),
+          axis.text.x = element_text(size = 12),
+          axis.text.y = element_text(size = 12),
+          axis.title.x = element_blank(),
+          axis.title.y = element_text(size = 14),
+          strip.text = element_text(size = 18),
+          # title = element_blank(),
+          legend.position = "inside",
+          legend.position.inside = c(0,1),
+          legend.justification = c("left", "top"),
+          legend.text = element_text(size = 18),
+          legend.background = element_blank())
 })
 
 ```
@@ -734,30 +765,30 @@ output$upr_themes_all <- renderPlot({
 
 output$DT_table <- renderDT(
   filtered_upr() |>  
-  mutate(state_under_review = factor(state_under_review)) |> 
-  select(text, cycle, response_upr, health_related:maternal_health,
-         # groups, 
-         state_under_review, document_code, paragraph) |> 
-  DT::datatable(
-    filter = "top",
-    options = list(
-      pageLength = 100,
-      deferRender = TRUE,
-      scrollY = 800,
-      scrollX = TRUE,
-      scroller = TRUE,
-      autoWidth = TRUE,      
-      columnDefs = list(list(width = '500px', targets = c(0)),
-                        list(width = '200px', targets = c(1)))
-    ),
-    rownames = FALSE, # set to FALSE for cleaner look
-    class = 'cell-border stripe hover compact'
-  )
+    mutate(state_under_review = factor(state_under_review)) |> 
+    select(text, cycle, response_upr, health_related:maternal_health,
+           # groups, 
+           state_under_review, document_code, paragraph) |> 
+    DT::datatable(
+      filter = "top",
+      options = list(
+        pageLength = 100,
+        deferRender = TRUE,
+        scrollY = 800,
+        scrollX = TRUE,
+        scroller = TRUE,
+        autoWidth = TRUE,      
+        columnDefs = list(list(width = '500px', targets = c(0)),
+                          list(width = '200px', targets = c(1)))
+      ),
+      rownames = FALSE, # set to FALSE for cleaner look
+      class = 'cell-border stripe hover compact'
+    )
 )
 ```
 
 
-## Column {.tabset}
+## Column {.tabset width=60%}
 ```{r}
 #| title: All recommendations
 plotOutput("upr_themes_all")
@@ -773,7 +804,7 @@ plotOutput("upr_themes_cycle")
 DTOutput("DT_table")
 ```
 
-## Column 
+## Column {width=40%}
 ### Row {height=50%}
 ```{r}
 plotOutput("plot")
@@ -809,7 +840,7 @@ output$mmr_map <- renderPlot({
       legend.position = "right",
       legend.background = element_blank()
     )+
-    labs(title = paste0("Maternal mortality ratio (MMR) estimate in 2023, ", input$selected_SUR, ": ", mmr_estimate_2023, " per 100,000 live births"),
+    labs(title = paste0("Maternal mortality ratio (MMR) estimate in 2023\n", input$selected_SUR, ": ", mmr_estimate_2023, " per 100,000 live births"),
          fill = NULL,
          color = NULL, lwd = NULL)+
     guides(color = "none", lwd = "none"
@@ -886,9 +917,10 @@ output$mmr_time_plot_neighbors <- renderPlot({
                                            .default = "Other"), 
                                  levels = c(input$selected_SUR, "Other"))) |> 
     filter(country_name %in% c(input$selected_SUR, 
-                               nearest_neighbors_list[,state_geo |> filter(country == input$selected_SUR) |> pull(rowid)][1:11])) |> 
+                               nearest_neighbors_list[,state_geo |> filter(country == input$selected_SUR) |> pull(rowid)][1:5])) |> 
     filter(year >= ymd(paste0(start_year, "-01-01"))) |> 
     # group_by(country_name) |> filter(NumericValue[YEAR == start_year]>50) |>
+    mutate(country_name = fct_relevel(country_name, input$selected_SUR)) |> 
     group_by(country_name) |> 
     mutate(
       num_stand = NumericValue - NumericValue[YEAR == start_year],
@@ -901,6 +933,7 @@ output$mmr_time_plot_neighbors <- renderPlot({
     filter(YEAR == as.numeric(start_year))
   
   dat_plot |> 
+    mutate(country_name = fct_relevel(country_name, input$selected_SUR)) |> 
     ggplot(aes(x=year, y = NumericValue))+
     labs(
       title = paste0("Trends in Maternal Mortality Ratio (MMR), since ", start_year),
@@ -954,21 +987,68 @@ output$mmr_causes <- renderPlot({
           legend.text = element_text(size = 16)
     )
 })
+
+### Longitudinal causes of deaths ---------
+output$mmr_causes_longitudinal <- renderPlot({
+  maternal_disorders_deaths_longitudinal |> 
+    filter(country %in%c("Global", input$selected_SUR)) |> 
+    mutate(country = fct_relevel(country, "Global")) |> 
+    filter(cause_name!="Maternal disorders") |> 
+    arrange(country, -year, -val) |> 
+    mutate(cause_name = fct_inorder(cause_name)) |> 
+    droplevels() |> 
+    ggplot(aes(x=year, y = val, color = country))+
+    scale_linewidth_binned(n.breaks = 8)+
+    scale_color_manual(values = c("grey40", "tomato3"))+
+    geom_line(
+      aes(lwd = val)
+    )+
+    facet_grid(
+      rows = vars(cause_name), 
+      # cols = vars(country),
+      switch = "y", scales = "free",
+      labeller = labeller(cause_name = label_wrap_gen(30))
+    )+
+    labs(x=NULL, y=NULL,
+         lwd = "Rate", color = NULL,
+         title = "Longitudinal trends in the causes of maternal deaths\n(Caution: y-axes are variable)")+
+    theme_bw()+
+    theme(
+      strip.placement = "outside",
+      strip.text.y.left = element_text(angle = 0, vjust = 1, size = 11),
+      strip.background = element_rect(fill = NA, linewidth = 1, color = "black", linetype = 1),
+      panel.grid = element_blank(),
+      axis.text.y = element_blank(),
+      axis.ticks.y = element_blank()
+    )
+})
 ```
 
-## Column {width=50%}
-### Row {height=60%}
+## Column {width=40%}
+### Row {height=45%}
 ```{r}
 plotOutput("mmr_map")
 ```
 
-### Row {height=40%}
-#### {.tabset}
+### Row {height=55%}
 ```{r}
+#| title: MMR trends with comparison with neighboring States
+plotOutput("mmr_time_plot_neighbors")
+```
+
+## Column {width=60%}
+### {.tabset}
+```{r}
+#| title: Causes
 plotOutput("mmr_causes")
 ```
 
-::: {.callout-note collapse="false" title="MMR cause definitions"}
+```{r}
+#| title: Causes over time
+plotOutput("mmr_causes_longitudinal")
+```
+
+#### Definitions  
 **Maternal haemorrhage** includes both postpartum haemorrhage (defined as blood loss ≥500 ml for vaginal delivery and ≥1000 ml for caesarean delivery) and antepartum haemorrhage (defined as vaginal bleeding from any cause at or beyond 20 weeks of gestation).  
 
 **Maternal sepsis** is defined as a temperature <36°C or >38°C and clinical signs of shock (systolic blood pressure <90 mmHg and tachycardia >120 bpm). **Other maternal infections** are defined as any maternal infections excluding HIV, STI, or not related to pregnancy. 
@@ -990,19 +1070,8 @@ plotOutput("mmr_causes")
 **Other direct maternal disorders** encompasses a wide range of maternal disorders that do not map to other diseases in the GBD cause list, including other fatal or non-fatal complications occurring during pregnancy, childbirth, and the postpartum period. 
 
 See also Cresswell et al. for more background on causes of maternal deaths:  
-Cresswell, Jenny A, Monica Alexander, Michael Y C Chong, Heather M Link, Marija Pejchinovska, Ursula Gazeley, Sahar M A Ahmed, et al. “Global and Regional Causes of Maternal Deaths 2009–20: A WHO Systematic Analysis.” The Lancet Global Health 13, no. 4 (April 2025): e626–34. <https://doi.org/10.1016/S2214-109X(24)00560-6>.
-:::
+Cresswell, Jenny A, Monica Alexander, Michael Y C Chong, Heather M Link, Marija Pejchinovska, Ursula Gazeley, Sahar M A Ahmed, et al. “Global and Regional Causes of Maternal Deaths 2009–20: A WHO Systematic Analysis.” The Lancet Global Health 13, no. 4 (April 2025): e626–34. <https://doi.org/10.1016/S2214-109X(24)00560-6>.  
 
-## Column {width=50%}
-### Row {height=40%}
-```{r}
-plotOutput("mmr_time_plot")
-```
-### Row {height=60%}
-```{r}
-#| title: Comparison with neighboring States
-plotOutput("mmr_time_plot_neighbors")
-```
 
 # Family planning
 ```{r}
@@ -1020,7 +1089,7 @@ abortion_map <- reactive({
     scale_linewidth_manual(values=c(0.8, 0.3))+
     scale_color_manual(values = c("blue3", "grey90"))+
     scale_fill_manual(values = c("chartreuse4", "cyan3", "gold", "chocolate1", "red3", "purple"), 
-                    na.value = "grey90", labels = relabel_na)+
+                      na.value = "grey90", labels = relabel_na)+
     # scale_fill_brewer(palette = "RdYlBu", na.value = "grey90", labels = relabel_na, direction = -1)+
     theme_bw()+
     theme(
@@ -1048,7 +1117,7 @@ output$abortion_map_sur <- renderPlot({
   p1<-abortion_map()+
     theme(legend.position = "right",
           legend.key.size = unit(0.5, "cm"),
-      legend.text = element_text(size = 14))+
+          legend.text = element_text(size = 14))+
     coord_sf(
       xlim = c(max(-180, bbox_selected_SUR()[[1]]-20), min(180,bbox_selected_SUR()[[3]]+20)), 
       ylim = c(max(-55.67295, bbox_selected_SUR()[[2]]-20), min(83.6341,bbox_selected_SUR()[[4]]+20)))
@@ -1091,7 +1160,7 @@ output$abortion_rate <- renderPlot({
     geom_sf()+
     scale_linewidth_manual(values=c(0.8, 0.3))+
     scale_color_manual(values = c("blue3", "grey90"))+
-    scale_fill_stepsn(n.breaks = 8,  na.value = "grey50",
+    scale_fill_stepsn(n.breaks = 8,  na.value = "grey80",
                       colors = hcl.colors(n=8, palette = "RdYlBu", rev = TRUE)
     )+
     theme_bw()+
@@ -1201,11 +1270,15 @@ output$family_planning <- renderPlot({
     mutate(selected_sur = factor(case_when(country == input$selected_SUR ~ input$selected_SUR, 
                                            .default = "Other"), 
                                  levels = c(input$selected_SUR, "Other"))) |> 
-    ggplot(aes(geometry = polygon, fill = value_cat, color = selected_sur, lwd = selected_sur))+
+    ggplot(aes(geometry = polygon, fill = NumericValue, color = selected_sur, lwd = selected_sur))+
     geom_sf()+
     scale_linewidth_manual(values=c(0.8, 0.3))+
     scale_color_manual(values = c("blue3", "grey90"))+
-    scale_fill_brewer(palette = "RdYlBu", na.value = "grey50", labels = relabel_na)+
+    scale_fill_fermenter(n.breaks = 10, 
+                         palette = "RdYlBu", direction = 1,
+                         na.value = "grey80", 
+                         labels = relabel_na)+
+    # scale_fill_brewer(palette = "RdYlBu", na.value = "grey50", labels = relabel_na)+
     theme_bw()+
     theme(
       panel.grid = element_blank(),

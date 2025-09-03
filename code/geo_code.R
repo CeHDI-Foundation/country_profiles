@@ -1,11 +1,20 @@
+pacman::p_load(
+  here,
+  dplyr,forcats,ggplot2,magrittr,readr,readxl,stringr,tibble,tidyr,lubridate,
+  # plotly,
+  janitor,
+  sf,
+  necountries
+)
+
 # Get member states geometries
-state_geo <- necountries::ne_countries |> 
+state_geo_prep <- necountries::ne_countries |> 
   # filter(type == "main"|country == "Alaska") #|>
   filter(status == "member"|status == "observer"|country == "Alaska"|country == "Greenland"|country=="Somaliland"|country == "Western Sahara") |> 
   select(iso2:sovereign, status, region:polygon)
 
 # Combine US and Alaska
-us_alaska <- state_geo |> 
+us_alaska <- state_geo_prep |> 
   filter(sovereign == "United States of America") |> 
   st_cast("POLYGON") %>%
   mutate(area = st_area(.)) |> 
@@ -17,25 +26,25 @@ us_alaska <- state_geo |>
   mutate(country = "United States of America")
 
 # Combine Somalia and Somaliland
-somalia <- state_geo |> 
+somalia <- state_geo_prep |> 
   filter(sovereign %in% c("Somalia", "Somaliland")) |> 
   st_union() |> st_sf() |> 
   rename("polygon" = 1) |> 
   mutate(country = "Somalia")
 
 # Update geometry for US and Alaska
-state_geo <- state_geo |> 
+state_geo_prep <- state_geo_prep |> 
   mutate(polygon = case_when(iso3 == "USA" ~ us_alaska$polygon,
                              country == "Somalia" ~ somalia$polygon,
                              .default = polygon)) |> 
   filter(!country %in% c("Somaliland", "Alaska"))
 # Get the centroid of each state and update dataset
-point_centroid <- st_centroid(state_geo, of_largest_polygon = TRUE)
-state_geo$point_centroid <- point_centroid$polygon
+point_centroid <- st_centroid(state_geo_prep, of_largest_polygon = TRUE)
+state_geo_prep$point_centroid <- point_centroid$polygon
 rm(us_alaska, somalia, point_centroid)
 
 # Update state names for compatability with SDG dataset
-state_geo <- state_geo |> 
+state_geo_prep <- state_geo_prep |> 
   mutate(country = case_match(
     country,
     "Bolivia" ~ "Bolivia (Plurinational State of)",
@@ -86,13 +95,91 @@ UN_official <- readxl::read_xlsx(here("data", "countries.xlsx")) |>
            .default = english_formal
          ))
 
-state_geo <- left_join(state_geo, UN_official, join_by(country == english_short)) |> 
+# WHO regions
+who_regions <- read_csv(here("data", "who_regions.csv")) |> select(-country) |> 
+  mutate(WHO_region = factor(WHO_region,
+                             levels = c("African Region (AFR)", 
+                                        "Eastern Mediterranean Region (EMR)",
+                                        "South-East Asian Region (SEAR)",
+                                        "Western Pacific Region (WPR)",
+                                        "Region of the Americas (AMR)",
+                                        "European Region (EUR)")))
+
+# Grouping by Fragile/Conflict-affected Situations
+# https://thedocs.worldbank.org/en/doc/5c7e4e268baaafa6ef38d924be9279be-0090082025/original/FCSListFY26.pdf
+FCS_countries <- tibble("country" = state_geo_prep$country) |> 
+  mutate(
+    FCS_status = case_when(
+      country %in% c(
+        "Afghanistan",
+        "Burkina Faso",
+        "Cameroon",
+        "Central African Republic",
+        "Democratic Republic of the Congo",
+        "Ethiopia",
+        "Haiti",
+        "Iraq",
+        "Lebanon",
+        "Mali",
+        "Mozambique",
+        "Myanmar",
+        "Niger",
+        "Nigeria",
+        "Somalia",
+        "South Sudan",
+        "Sudan",
+        "Syrian Arab Republic",
+        "Ukraine",
+        "Palestine",
+        "Yemen") ~ "Conflict",
+      country %in% c(
+        "Burundi",
+        "Chad",
+        "Comoros",
+        "Congo",
+        "Eritrea",
+        "Guinea-Bissau",
+        "Kiribati",
+        "Libya",
+        "Marshall Islands",
+        "Micronesia (Federated States of)",
+        "Papua New Guinea",
+        "Sao Tome and Principe",
+        "Solomon Islands",
+        "Timor-Leste",
+        "Tuvalu",
+        "Venezuela (Bolivarian Republic of)",
+        "Zimbabwe") ~ "Institutional and social fragility",
+      .default = "Other"
+    ))
+
+# ECSA-HC status
+ecsa_states <- read_csv(here("data", "ecsa_status.csv")) |> select(-country)
+
+state_geo <- left_join(state_geo_prep, UN_official, join_by(country == english_short)) |> 
   mutate(english_formal = case_when(country == "Greenland" ~ "Greenland", .default = english_formal)) |> 
-  rowid_to_column()
+  rowid_to_column() |> 
+  mutate(income = factor(income, 
+                         levels = c("1. High income: OECD", "2. High income: nonOECD", 
+                                    "3. Upper middle income", "4. Lower middle income", 
+                                    "5. Low income"))) |> 
+  left_join(FCS_countries) |> 
+  left_join(who_regions) |> 
+  arrange(region, WHO_region, subregion) |> 
+  mutate(subregion = fct_inorder(subregion),
+         across(c(region, wbregion), ~ factor(.x))) |> 
+  left_join(ecsa_states) |> 
+  mutate(ECSA_status = fct_na_value_to_level(ECSA_status, "Other"))
 
 saveRDS(state_geo, here("output", "state_geo_enhanced.rds"))
 
-state_geo_dist <- state_geo |> st_set_geometry("point_centroid") |> select(country) |> st_distance()
+state_geo_dist <- state_geo |> 
+  # st_set_geometry("point_centroid") |> 
+  st_set_geometry("polygon") |> 
+  select(country) |> 
+  st_distance()
+
+diag(state_geo_dist)<- -1 # Make sure that the distance from itself is always the smallest distance
 # give the rows & cols meaningful names
 colnames(state_geo_dist) <- state_geo$country
 rownames(state_geo_dist) <- state_geo$country
@@ -110,25 +197,18 @@ nearest_neighbors_list <- apply(state_geo_dist, 1, function(row_distances) {
 })
 saveRDS(nearest_neighbors_list, here("output", "nearest_neighbors_list.rds"))
 
-# country_row <-state_geo |> filter(country == "India") |> pull(rowid)
-# nearest_neighbors_list[,country_row][1:11]
 
-# List the ECSA-HC states
-ecsa_states <- c("Kenya", "Lesotho", "Malawi", "Mauritius", "Eswatini", 
-                 "United Republic of Tanzania", "Uganda", "Zambia", "Zimbabwe")
+# UN states listing with regional groupings
+# Downloaded from: https://unstats.un.org/unsd/methodology/m49/overview/
 
-
-# # UN states listing with regional groupings
-# # Downloaded from: https://unstats.un.org/unsd/methodology/m49/overview/
-# 
-# UNSD <- read_csv2(here("data", "UNSD_Methodology.csv")) |> 
-#   janitor::clean_names() |> 
-#   mutate(
-#     intermediate_region_name = case_when(
-#       is.na(intermediate_region_name) ~ sub_region_name, 
-#             .default = intermediate_region_name),
-#     least_developed_countries_ldc = case_when(
-#       least_developed_countries_ldc == "x" ~ TRUE,
-#       .default = FALSE)
-#   ) |> 
-#   select(intermediate_region_name, iso_alpha3_code, least_developed_countries_ldc)
+UNSD <- read_csv2(here("data", "UNSD_Methodology.csv")) |>
+  janitor::clean_names() |>
+  mutate(
+    intermediate_region_name = case_when(
+      is.na(intermediate_region_name) ~ sub_region_name,
+      .default = intermediate_region_name),
+    least_developed_countries_ldc = case_when(
+      least_developed_countries_ldc == "x" ~ TRUE,
+      .default = FALSE)
+  ) |>
+  select(intermediate_region_name, iso_alpha3_code, least_developed_countries_ldc)
