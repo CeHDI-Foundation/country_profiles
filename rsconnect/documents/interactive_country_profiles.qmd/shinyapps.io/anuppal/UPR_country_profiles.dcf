@@ -1,0 +1,14 @@
+name: UPR_country_profiles
+title: UPR_country_profiles
+username: anuppal
+account: anuppal
+server: shinyapps.io
+hostUrl: https://api.shinyapps.io/v1
+appId: 15205842
+bundleId: 10862076
+url: https://anuppal.shinyapps.io/UPR_country_profiles/
+version: 1
+quarto_version: 1.7.33
+quarto_engines: knitr
+asMultiple: FALSE
+asStatic: FALSE
