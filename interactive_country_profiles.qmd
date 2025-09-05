@@ -275,6 +275,8 @@ UPR recommendations were downloaded from a database maintained by the Danish Ins
 
 Data related to various indicators (e.g. maternal mortality ratio and estimated abortion rates) were accessed via the [Global Health Observatory's API](https://www.who.int/data/gho/info/gho-odata-api), and data regarding the causes of maternal death were obtained using the [IHME's GBD Results tool](https://vizhub.healthdata.org/gbd-results/).
 
+More information on the East, Central and Southern Africa Health Community (**ECSA-HC**) can be found [here](https://ecsahc.org/ecsa-hc-at-a-glance/).
+
 Grouping by Fragile/Conflict-affected Situations (**FCS status**) was made according to the following grouping obtained from the World Bank:
 <https://thedocs.worldbank.org/en/doc/5c7e4e268baaafa6ef38d924be9279be-0090082025/original/FCSListFY26.pdf>
 
@@ -320,7 +322,7 @@ CeHDI
 ::: {.highlight-block}
 Preliminary results?
 :::
-<!-- ![](www/full_plot.png){width=50%} -->
+![](www/full_plot.png){width=50%}
 
 # UPR: Regional
 ```{r}
