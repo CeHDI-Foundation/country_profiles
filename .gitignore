@@ -44,3 +44,6 @@ vignettes/*.pdf
 /*.png
 /data/GBD/*.csv
 /data/GBD/maternal_disorders/*.csv
+/output/*.svg
+/output/*.png
+*.html
