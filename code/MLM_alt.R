@@ -129,9 +129,9 @@ dat_model <- left_join(dat_prep, n_sup_mh, join_by(COUNTRY == iso3)) |>
 
 # Model parameters ----
 dat_model_alt <- dat_model |> filter(!is.na(perc_dec), !is.na(n_mh_recs))
-outcomes <- tribble(~outcome, ~text,
-                    "MMR", "Predicted estimates of MMR",
-                    "institutional_birth")
+# outcomes <- tribble(~outcome, ~text,
+#                     "MMR", "Predicted estimates of MMR",
+#                     "institutional_birth")
 
 m_MMR_0 <- lmer(MMR ~ 1+YEAR
                       + (1+YEAR |country_name),
@@ -182,7 +182,7 @@ predm1 <- marginaleffects::plot_predictions(
   )
 
 ## Plot predictions ----
-legend_text = str_wrap("% support of maternal health recommendations",20); predm1 |> 
+legend_text = str_wrap("% support of maternal health recommendations",20); full_plot <- predm1 |> 
   ggplot(aes(x = YEAR, y = estimate
              , color = perc_dec, fill = perc_dec
              ))+
@@ -204,7 +204,9 @@ legend_text = str_wrap("% support of maternal health recommendations",20); predm
     legend.key.size = unit(0.5, "cm"),
     legend.text = element_text(size = 15)
   )+ 
-  facet_grid(.~n_mh_recs)+scale_y_continuous(limits = c(0,NA))
+  facet_grid(.~n_mh_recs)+scale_y_continuous(limits = c(0,NA)); full_plot
+
+ggsave("full_plot.png", width = 8, height = 4)
 
 ## Test pairwise differences of perc_dec ----
 my_summary<-summary(
@@ -225,4 +227,5 @@ my_summary |> as_data_frame() |>
   select(-c(SE,df,t.ratio)) |> 
   mutate(across(estimate:upper.CL, ~round(.x,2)),
          p.value=round(p.value,3)) |> 
-  mutate(full_estimate = paste0(estimate, " [",lower.CL,",",upper.CL, "]"))
+  mutate(full_estimate = paste0(estimate, " [",lower.CL,",",upper.CL, "]")) |> 
+  select(-c(estimate:upper.CL))
