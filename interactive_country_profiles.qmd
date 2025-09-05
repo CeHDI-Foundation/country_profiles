@@ -1,5 +1,6 @@
 ---
-title: "Country Profiles and the UPR"
+title: "UPR Health Explorer"
+# subtitle: "An interactive exploration of health-related recommendations from the first four cycles of the Universal Periodic Review"
 # author: "Anshu Uppal"
 date-modified: last-modified # Dynamic modified date
 format: 
@@ -27,7 +28,8 @@ pacman::p_load(
   DT,
   sf,
   necountries,
-  patchwork
+  patchwork,
+  pdftools
   # Hmisc,
   # ggmapinset
   # cowplot
@@ -230,6 +232,40 @@ output$global_map <- renderPlot({
   
   p2
 })
+
+output$regional_map <- renderPlot({
+  p1 <- state_geo_reactive() |> 
+    ggplot(aes(geometry = polygon, fill = region_dashboard))+
+    geom_sf()+
+    scale_color_manual(values = c("green4", "grey80"))+
+    scale_linewidth_manual(values=c(0.8, 0.3))+
+    scale_fill_manual(values = c("green4", "grey90"))+
+    theme_bw()+
+    theme(
+      panel.grid = element_blank(),
+      axis.text = element_blank(), axis.ticks = element_blank()
+    )+
+    labs(title = NULL,
+         fill = NULL,
+         color = NULL, lwd = NULL)+
+    guides(fill = "none", lwd = "none", color = "none"
+           # , fill = guide_legend(nrow = 1)
+    )
+  
+  if(sur_area() > 10^11){p2<-p1} else{p2<-p1+geom_rect(
+    aes(
+      xmin = bbox_selected_SUR()["xmin"]-1,
+      xmax = bbox_selected_SUR()["xmax"]+1,
+      ymin = bbox_selected_SUR()["ymin"]-1,
+      ymax = bbox_selected_SUR()["ymax"]+1
+    ),
+    fill = "transparent",      # Make the rectangle hollow
+    color = "green4",             # Set the border color
+    linewidth = 0.5            # Set the border thickness
+  )}
+  
+  p2
+})
 ```
 ::: {.callout-note collapse="true"}
 # Disclaimer
@@ -248,6 +284,43 @@ Grouping by Fragile/Conflict-affected Situations (**FCS status**) was made accor
 ```{r}
 plotOutput("global_map")
 ```
+
+# About
+
+::: {.highlight-block}
+The Right to Health
+:::
+The Right to Health is central to the fulfillment of broader human rights obligations, serving as a powerful tool to advance well-being, equity, and dignity across all sectors of society.  
+
+The Right to Health comprises the State's obligations to:  
+-  **Respect**: refrain from interfering directly or indirectly with the enjoyment of the right to health.  
+-  **Protect**: take measures that prevent third parties from interfering with the guarantees of the right to health.  
+-  **Fulfill**: adopt appropriate legislative, administrative, budgetary, judicial, promotional, and other measures toward the full realization of the right to health. 
+
+::: {.highlight-block}
+The Universal Periodic Review
+:::
+The UPR is a State-led, periodic peer review mechanism to evaluate each State’s “human rights obligations and commitments”  
+-  Each cycle repeats every 4-5 years - see below illustration for an overview of each cycle  
+![](www/UPR_review_banner2.png){width=30%}  
+
+The Reviews are guided by three main pre-session reports (see below):  
+-  Reviewing States issue recommendations  
+-  The State Under Review can either “Support” (accept) or “Note” each recommendation  
+![](www/UPR_pre_review.png){width=60%}
+
+
+More than 90,000 recommendations were issued during the first three cycles of the UPR. There is a growing focus on the right to health.
+
+::: {.highlight-block}
+CeHDI
+:::
+[CeHDI](https://www.cehdi.org/) has a mission of amplifying and facilitating the inclusion of  the priorities and voices of the Global South within the global health architecture and building robust partnerships for global health equity and the right to health.
+
+::: {.highlight-block}
+Preliminary results?
+:::
+<!-- ![](www/full_plot.png){width=50%} -->
 
 # UPR: Regional
 ```{r}
