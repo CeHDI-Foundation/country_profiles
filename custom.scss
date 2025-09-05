@@ -1,0 +1,54 @@
+/*-- scss:defaults --*/
+
+// colors
+
+$navbar-bg: #1c164d;
+$navbar-fg: white;
+$body-color: #1c164d;
+/*-- 
+$sidebar-bg: #1c164d;
+$body-bg: #1c164d; 
+--*/
+
+// highlighting
+
+.mark-blue {
+  background-color: #1c164d;
+  color: white;
+  padding: 0.1em 0.3em;
+  border-radius: 3px;
+}
+
+// Line break
+
+hr {
+  height: 1px;                 // Controls the thickness
+  border: none;                // Removes the default 3D border
+  background-color: #1c164d;   // Color
+  margin-top: 2rem;            // Adds space above the line
+  margin-bottom: 2rem;         // Adds space below the line
+}
+
+
+// Block highlighting for text sections
+
+.highlight-block {
+  display: flex;
+  //align-items: center;  // This horizontally centers the text inside the block
+  
+  flex-direction: column;     // Explicitly set the main axis to vertical
+  justify-content: center;
+
+  background-color: #1c164d;
+  color: white;
+  font-weight: bold;
+  padding: 1em;
+  margin-top: 1.5rem;
+  margin-bottom: 1.5rem;
+  border-radius: 5px;
+
+  p {
+    margin: 0;
+    padding: 0;
+  }
+}
