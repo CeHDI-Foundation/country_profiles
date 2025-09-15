@@ -127,6 +127,10 @@ dat_model <- left_join(dat_prep, n_sup_mh, join_by(COUNTRY == iso3)) |>
     ) |> 
   ungroup()
 
+mean_mmr_baseline <- dat_model |> select(country_name, mmr_baseline) |> distinct() |> 
+  mutate(mean = mean(mmr_baseline)) |> select(mean) |> distinct() |> pull(mean)
+dat_model <- dat_model |> mutate(mmr_baseline_centered = mmr_baseline-mean_mmr_baseline)
+
 # Model parameters ----
 dat_model_alt <- dat_model |> filter(!is.na(perc_dec), !is.na(n_mh_recs))
 # outcomes <- tribble(~outcome, ~text,
@@ -144,7 +148,7 @@ m_MMR_0 <- lmer(MMR ~ 1+YEAR
 summary(m_MMR_0)
 plot(predictorEffects(m_MMR_0))
 
-m_MMR_1 <- update(m_MMR_0, .~. + mmr_baseline)
+m_MMR_1 <- update(m_MMR_0, .~. + mmr_baseline_centered)
 summary(m_MMR_1)
 anova(m_MMR_0, m_MMR_1)
 
@@ -178,7 +182,7 @@ predm1 <- marginaleffects::plot_predictions(
       ~ paste0(as.numeric(.x)*100, "%"))
     ,n_mh_recs = fct_relabel(
       n_mh_recs, 
-      ~ paste("N recommendations:", .x))
+      ~ paste("N =", .x))
   )
 
 ## Plot predictions ----
@@ -186,23 +190,26 @@ legend_text = str_wrap("% support of maternal health recommendations",20); full_
   ggplot(aes(x = YEAR, y = estimate
              , color = perc_dec, fill = perc_dec
              ))+
-  geom_line(size = 1)+
+  geom_line(linewidth = 1)+
   geom_ribbon(aes(ymin = conf.low, ymax = conf.high), alpha = 0.2, color = NA)+
-  labs(y="Predicted estimates of MMR", x = "Year",color = legend_text, fill = legend_text)+
+  labs(y="Modelled estimates of MMR", x = "Year",color = legend_text, fill = legend_text,
+       title = "Number of issued recommendations related to maternal health")+
   theme_bw()+
   theme(
     legend.position = "inside",
-    legend.position.inside = c(0,0),
+    legend.position.inside = c(0.01,0.01),
     legend.justification = c(0,0),
     legend.background = element_rect(fill = "transparent"),
     panel.grid.minor = element_blank(),
     strip.text = element_text(size = 12),
-    axis.title.x = element_text(size = 20),
+    axis.title.x = element_text(size = 16),
     axis.text = element_text(size = 15),
-    axis.title.y = element_text(size = 20),
+    axis.title.y = element_text(size = 16),
     title = element_text(size = 15),
     legend.key.size = unit(0.5, "cm"),
-    legend.text = element_text(size = 15)
+    plot.title = element_text(hjust=0.5, size = 16),
+    legend.text = element_text(size = 13), 
+    legend.title = element_text(size = 13)
   )+ 
   facet_grid(.~n_mh_recs)+scale_y_continuous(limits = c(0,NA)); full_plot
 
